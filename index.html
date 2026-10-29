@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Северное сияние: Три пика</title>
+    <!-- Площадка: itch.io. SDK площадки и переходник вместо Яндекс SDK. -->
+    <script src="./platform-bridge.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+        background: #0b1a3a;
+      }
+      #sky {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        z-index: 0;
+        background: linear-gradient(180deg, #0b1a3a 0%, #1d4a6a 100%);
+      }
+      .sky-stars {
+        position: absolute;
+        inset: 0;
+        background-repeat: repeat;
+        background-size: 256px 256px, 320px 320px;
+      }
+      .sky-aurora {
+        position: absolute;
+        left: -20%;
+        right: -20%;
+        top: 2%;
+        height: 46%;
+        background-repeat: repeat-x;
+        background-size: 1024px 100%;
+        will-change: transform, opacity;
+        animation: sky-sway 18s ease-in-out infinite alternate;
+      }
+      .sky-aurora-1 {
+        top: 18%;
+        height: 40%;
+        opacity: 0.7;
+        animation-duration: 26s;
+        animation-direction: alternate-reverse;
+      }
+      @keyframes sky-sway {
+        from {
+          transform: translate3d(-60px, 0, 0) scaleY(0.92);
+          opacity: 0.75;
+        }
+        to {
+          transform: translate3d(60px, 0, 0) scaleY(1.08);
+          opacity: 1;
+        }
+      }
+      .sky-hills {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 200px;
+        background-repeat: repeat-x;
+        background-position: center bottom;
+        background-size: 720px 200px;
+      }
+      .lowfx .sky-aurora {
+        animation: none;
+        will-change: auto;
+      }
+      .lowfx .sky-aurora-1 {
+        display: none;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+      }
+      canvas {
+        display: block;
+        touch-action: none;
+        outline: none;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-CTAVx17N.js"></script>
+  </head>
+  <body oncontextmenu="return false;">
+    <div id="game"></div>
+  </body>
+</html>
