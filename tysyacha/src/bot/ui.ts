@@ -23,6 +23,15 @@ const PHASE_RU: Record<string, string> = {
   gameover: 'партия окончена',
 };
 
+// Блок Playing Cards в Unicode использует отдельный ряд для каждой масти.
+const CARD_SUIT_BASE: Record<Suit, number> = {
+  spades: 0x1f0a0,
+  hearts: 0x1f0b0,
+  diamonds: 0x1f0c0,
+  clubs: 0x1f0d0,
+};
+const CARD_RANK_OFFSET: Record<Card['rank'], number> = { A: 1, '9': 9, '10': 10, J: 11, Q: 13, K: 14 };
+
 export function scoreBlock(view: PrivateView): string {
   return view.players
     .map((p, i) => {
@@ -123,23 +132,8 @@ export function buildKeyboard(view: PrivateView, humanIndex: number): InlineKeyb
     kb.row();
   }
 
-  if (view.phase === 'discard' && myTurn) {
-    view.hand.forEach((c, i) => {
-      kb.text(formatCard(c), `card:${c.id}`);
-      if ((i + 1) % 4 === 0) kb.row();
-    });
-    kb.row();
-  }
-
-  if (view.phase === 'play' && myTurn) {
-    const legal = new Set(view.legalCardIds);
-    view.hand
-      .filter((c) => legal.has(c.id))
-      .forEach((c, i) => {
-        kb.text(cardAction(c, view.canDeclareMarriage), `card:${c.id}`);
-        if ((i + 1) % 4 === 0) kb.row();
-      });
-    kb.row();
+  if (myTurn && (view.phase === 'discard' || view.phase === 'play')) {
+    addCardButtons(kb, view, (action) => action);
   }
 
   if (view.phase === 'roundend') {
@@ -176,9 +170,20 @@ export function rulesText(): string {
   ].join('\n');
 }
 
-export function cardAction(card: Card, marriages: Suit[]): string {
-  const bonus = (card.rank === 'K' || card.rank === 'Q') && marriages.includes(card.suit);
-  return bonus ? `${formatCard(card)} +${MARRIAGE_POINTS[card.suit]}` : formatCard(card);
+export function addCardButtons(
+  keyboard: InlineKeyboard,
+  view: PrivateView,
+  callbackFor: (action: string) => string,
+): void {
+  const cards = view.phase === 'discard' ? view.hand : view.hand.filter((card) => view.legalCardIds.includes(card.id));
+  cards.forEach((card, index) => {
+    if (index > 0 && index % 3 === 0) keyboard.row();
+    const picture = String.fromCodePoint(CARD_SUIT_BASE[card.suit] + CARD_RANK_OFFSET[card.rank]);
+    const marriage = (card.rank === 'K' || card.rank === 'Q') && view.canDeclareMarriage.includes(card.suit);
+    const bonus = marriage ? ` +${MARRIAGE_POINTS[card.suit]}` : '';
+    keyboard.text(`${picture} ${formatCard(card)}\uFE0F${bonus}`, callbackFor(`card:${card.id}`));
+  });
+  keyboard.row();
 }
 
 export function scoreText(value: number): string {
