@@ -1,0 +1,205 @@
+/** Текстовая и клавиатурная визуализация для Telegram. */
+
+import { InlineKeyboard } from 'grammy';
+import type { PrivateView } from '../game/engine.ts';
+import {
+  formatCard,
+  formatCards,
+  SUIT_SYMBOL,
+  MARRIAGE_POINTS,
+  SUIT_NAME_RU,
+  type Card,
+  type Suit,
+} from '../game/cards.ts';
+
+const PHASE_RU: Record<string, string> = {
+  idle: 'ожидание',
+  bidding: 'торговля',
+  talonshow: 'прикуп',
+  discard: 'снос',
+  order: 'заказ',
+  play: 'розыгрыш',
+  roundend: 'итог сдачи',
+  gameover: 'партия окончена',
+};
+
+// Блок Playing Cards в Unicode использует отдельный ряд для каждой масти.
+const CARD_SUIT_BASE: Record<Suit, number> = {
+  spades: 0x1f0a0,
+  hearts: 0x1f0b0,
+  diamonds: 0x1f0c0,
+  clubs: 0x1f0d0,
+};
+const CARD_RANK_OFFSET: Record<Card['rank'], number> = { A: 1, '9': 9, '10': 10, J: 11, Q: 13, K: 14 };
+
+export function scoreBlock(view: PrivateView): string {
+  return view.players
+    .map((p, i) => {
+      const s = view.scores[i];
+      const flags = [
+        s.onBarrel ? '🏔 бочка' : '',
+        s.bolts ? `болты ${s.bolts}` : '',
+        view.bidder === i ? 'играет' : '',
+        view.whoseTurn === i ? '← ход' : '',
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return `• <b>${tableName(p.name)}</b> · <b>${scoreText(s.total)}</b> всего · ${view.roundPoints[i]} за сдачу${flags ? ` (${flags})` : ''}`;
+    })
+    .join('\n');
+}
+
+export function formatStatus(view: PrivateView, webUrl?: string): string {
+  const trump = view.trump ? `\nКозырь: <b>${SUIT_SYMBOL[view.trump]} ${SUIT_NAME_RU[view.trump]}</b>` : '';
+  const order = view.order != null ? ` · заказ <b>${view.order}</b>` : '';
+  const lines = [
+    `<b>Тысяча</b> · сдача ${view.dealNumber} · ${PHASE_RU[view.phase] ?? view.phase}`,
+    `Ставка <b>${view.bid}</b>${order}${trump}`,
+    '',
+    scoreBlock(view),
+    '',
+  ];
+  if (view.winner !== null) lines.push(`🏆 ${tableName(view.players[view.winner].name)}`);
+  if (view.whoseTurn === 0) {
+    lines.push('🟢 <b>Ваш ход</b>');
+    const target = view.discardTargets?.[0];
+    if (target !== undefined) lines.push(`Выберите карту для игрока ${tableName(view.players[target].name)}.`);
+  } else if (view.whoseTurn !== null) {
+    const name = tableName(view.players[view.whoseTurn].name);
+    lines.push(botOpening(view) ? `Первым ходит <b>${name}</b>. Нажмите «Начать розыгрыш».` : `Ходит <b>${name}</b>`);
+  }
+
+  const talon = talonNotice(view);
+  if (talon) lines.push('', talon);
+  else if (view.phase === 'play' && view.bidder !== null) {
+    lines.push(`Играет <b>${tableName(view.players[view.bidder].name)}</b>`);
+  }
+  const marriages = view.marriagesDeclared.flatMap((suits, i) =>
+    suits.map((suit) => `${tableName(view.players[i].name)} ${SUIT_SYMBOL[suit]}+${MARRIAGE_POINTS[suit]}`));
+  if (marriages.length) lines.push(`<b>Марьяжи</b> ${marriages.join(' · ')}`);
+  if (view.currentTrick.length) {
+    lines.push(
+      '',
+      '<b>На столе:</b> ' +
+        view.currentTrick.map((t) => `${escapeHtml(view.players[t.player].name)} ${formatCard(t.card)}`).join(' · '),
+    );
+  }
+  lines.push('', `<b>Ваши карты:</b>\n${formatCards(view.hand) || '—'}`);
+
+  if (view.canDeclareMarriage.length) {
+    lines.push('Кнопка с +очками объявит марьяж.');
+  }
+
+  if (webUrl) {
+    lines.push('', `<a href="${escapeHtml(webUrl).replace(/"/g, '&quot;')}">Веб-демо</a>`);
+  }
+
+  return lines.join('\n');
+}
+
+export function buildKeyboard(view: PrivateView, humanIndex: number): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  const myTurn = view.whoseTurn === humanIndex;
+
+  if (view.phase === 'bidding' && myTurn) {
+    const next = view.bid + 5;
+    if (next <= view.maxBid) kb.text(`⬆️ ${next}`, `bid:${next}`);
+    kb.text('Пас', 'bid:pass').row();
+  }
+
+  if (view.phase === 'order' && myTurn) {
+    const options = view.orderOptions.length
+      ? view.orderOptions
+      : [view.bid];
+    const picks = new Set<number>();
+    for (const v of options) {
+      if (
+        v === view.bid ||
+        v === options[options.length - 1] ||
+        v === view.bid + 5 ||
+        v === view.bid + 10 ||
+        v === view.bid + 20 ||
+        v === view.bid + 40 ||
+        v % 20 === 0
+      ) {
+        picks.add(v);
+      }
+    }
+    [...picks].sort((a, b) => a - b).forEach((val, i) => {
+      kb.text(String(val), `order:${val}`);
+      if ((i + 1) % 4 === 0) kb.row();
+    });
+    kb.row();
+  }
+
+  if (myTurn && (view.phase === 'discard' || view.phase === 'play')) {
+    addCardButtons(kb, view, (action) => action);
+  }
+
+  if (view.phase === 'roundend') {
+    kb.text('➡️ Следующая сдача', 'next').row();
+  }
+
+  if (botOpening(view)) kb.text('▶️ Начать розыгрыш', 'solo:lead').row();
+  kb.text('🪑 Столы', 'tables:open').text('🔄 Новая партия', 'new').text('📖 Правила', 'rules');
+  return kb;
+}
+
+function botOpening(view: PrivateView): boolean {
+  return view.phase === 'play' && Boolean(view.talon?.length) &&
+    view.whoseTurn !== null && view.players[view.whoseTurn].isBot;
+}
+
+export function rulesText(): string {
+  return [
+    '<b>Правила «Тысячи»</b> (3–4 игрока, до 1000)',
+    '',
+    'Колода 24 карты: 9, В, Д, К, 10, Т. Очки: 0/2/3/4/10/11. Старшинство: Т&gt;10&gt;К&gt;Д&gt;В&gt;9.',
+    '',
+    '<b>Торговля:</b> слева от сдающего — 100. Шаг 5. Без марьяжа не выше 120. Пас окончательный.',
+    '',
+    '<b>Прикуп:</b> после торгов видно, кто его взял. Три карты открыты всем до первого хода. Победитель передаёт по одной карте соперникам и объявляет заказ.',
+    '',
+    '<b>Вчетвером:</b> сдающий пропускает торги и розыгрыш. Ему записываются очки карт прикупа с округлением до 5 и стоимость марьяжа, если он есть в прикупе. После каждой сдачи роль переходит следующему игроку.',
+    '',
+    '<b>Розыгрыш:</b> ходите в масть; нет масти — козырь; иначе любая. Перебивать старшей не обязательно.',
+    '',
+    '<b>Марьяж:</b> после своей взятки начните новую взятку королём или дамой, если обе карты одной масти у вас на руках. Бот объявит марьяж автоматически. ♠40 ♣60 ♦80 ♥100 → новый козырь.',
+    '',
+    '<b>Запись:</b> играющий получает заказ или −заказ. Общий счёт может уйти в минус. Остальные — округление до 5. Бочка 880, выход заказом ≥120. Цель — 1000.',
+  ].join('\n');
+}
+
+export function addCardButtons(
+  keyboard: InlineKeyboard,
+  view: PrivateView,
+  callbackFor: (action: string) => string,
+): void {
+  const cards = view.phase === 'discard' ? view.hand : view.hand.filter((card) => view.legalCardIds.includes(card.id));
+  cards.forEach((card, index) => {
+    if (index > 0 && index % 3 === 0) keyboard.row();
+    const picture = String.fromCodePoint(CARD_SUIT_BASE[card.suit] + CARD_RANK_OFFSET[card.rank]);
+    const marriage = (card.rank === 'K' || card.rank === 'Q') && view.canDeclareMarriage.includes(card.suit);
+    const bonus = marriage ? ` +${MARRIAGE_POINTS[card.suit]}` : '';
+    keyboard.text(`${picture} ${formatCard(card)}\uFE0F${bonus}`, callbackFor(`card:${card.id}`));
+  });
+  keyboard.row();
+}
+
+export function scoreText(value: number): string {
+  return value < 0 ? `−${-value}` : String(value);
+}
+
+export function talonNotice(view: PrivateView): string | undefined {
+  if (!view.talon?.length || view.bidder === null) return undefined;
+  return `Прикуп у <b>${tableName(view.players[view.bidder].name)}</b> · ${formatCards(view.talon)}`;
+}
+
+export function tableName(name: string): string {
+  const chars = Array.from(name);
+  return escapeHtml(chars.length > 22 ? chars.slice(0, 21).join('') + '…' : name);
+}
+
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
