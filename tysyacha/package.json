@@ -4,10 +4,10 @@
   "description": "Карточная игра «Тысяча» — Telegram-бот с красивой визуализацией стола",
   "type": "module",
   "scripts": {
-    "start": "tsx src/bot/index.ts",
-    "web": "tsx src/web/server.ts",
-    "dev": "tsx watch src/bot/index.ts",
-    "test": "tsx --test tests/**/*.test.ts",
+    "start": "node --import tsx src/bot/index.ts",
+    "web": "node --import tsx src/web/server.ts",
+    "dev": "node --watch --import tsx src/bot/index.ts",
+    "test": "node --import tsx --test tests/game.test.ts tests/friends.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

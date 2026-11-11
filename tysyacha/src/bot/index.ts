@@ -3,15 +3,14 @@
  * Токен: TELEGRAM_BOT_TOKEN. Без токена поднимается только веб-демо.
  */
 
-import { Bot, InputFile } from 'grammy';
+import { Bot, InputFile, type BotConfig, type Context } from 'grammy';
 import { createSoloSession, deleteSession, getSession } from './sessions.ts';
 import { buildKeyboard, escapeHtml, formatStatus, rulesText, tableSvgFor } from './ui.ts';
 import { runBotsUntilHuman } from '../game/ai.ts';
 import type { Suit } from '../game/cards.ts';
 import { startWebServer } from '../web/server.ts';
 import { pathToFileURL } from 'node:url';
-
-const pendingMarriage = new Map<number, Suit>();
+import { registerFriends } from './friends.ts';
 
 async function refresh(ctx: {
   chat?: { id: number } | undefined;
@@ -59,18 +58,10 @@ async function refresh(ctx: {
   }
 }
 
-export async function startBot(): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const port = Number(process.env.PORT || 8787);
-  const web = await startWebServer(port);
-
-  if (!token) {
-    console.log(`[tysyacha] TELEGRAM_BOT_TOKEN не задан — только веб-демо: ${web.url}`);
-    console.log('[tysyacha] Добавьте токен бота от @BotFather, чтобы включить Telegram.');
-    return;
-  }
-
-  const bot = new Bot(token);
+export function createBot(token: string, config?: BotConfig<Context>): Bot {
+  const bot = new Bot(token, config);
+  const pendingMarriage = new Map<number, Suit>();
+  registerFriends(bot);
 
   bot.command('start', async (ctx) => {
     const name = ctx.from?.first_name || 'Игрок';
@@ -101,6 +92,10 @@ export async function startBot(): Promise<void> {
     deleteSession(ctx.chat.id);
     pendingMarriage.delete(ctx.chat.id);
     await ctx.reply('Партия сброшена. /start — начать снова.');
+  });
+
+  bot.command('leave', async (ctx) => {
+    await ctx.reply('Вы сейчас вне комнаты. /start — открыть меню.');
   });
 
   bot.on('callback_query:data', async (ctx) => {
@@ -192,20 +187,41 @@ export async function startBot(): Promise<void> {
   });
 
   bot.catch((err) => {
-    console.error('[tysyacha] bot error', err.error);
+    console.error('[tysyacha] ошибка обработки сообщения:', err.error instanceof Error ? err.error.name : 'ошибка');
   });
+  return bot;
+}
 
+export async function startBot(): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const port = Number(process.env.PORT || 8787);
+  const web = await startWebServer(port);
   console.log(`[tysyacha] веб-стол: ${web.url}`);
-  console.log('[tysyacha] бот запущен (long polling)');
-  await bot.start({
-    onStart: (info) => console.log(`[tysyacha] @${info.username}`),
-  });
+
+  if (!token) {
+    console.log('[tysyacha] TELEGRAM_BOT_TOKEN не задан — работает только веб-демо.');
+    return;
+  }
+  const bot = createBot(token);
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      web.server.close();
+      void bot.stop().catch(() => undefined);
+    });
+  }
+  try {
+    await bot.start({
+      onStart: (info) => console.log(`[tysyacha] @${info.username} запущен (long polling)`),
+    });
+  } finally {
+    web.server.close();
+  }
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   startBot().catch((e) => {
-    console.error(e);
+    console.error('[tysyacha] не удалось запустить бот:', e instanceof Error ? e.name : 'ошибка');
     process.exit(1);
   });
 }

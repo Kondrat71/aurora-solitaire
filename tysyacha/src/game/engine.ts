@@ -1,5 +1,5 @@
 /**
- * Движок партии «Тысяча» (3 игрока).
+ * Движок партии «Тысяча» на 3 или 4 места.
  * Правила сверены с kubikoved.ru / IgraFan / cards-1000.ru.
  */
 
@@ -50,12 +50,15 @@ export interface PublicGameView {
   players: PlayerInfo[];
   scores: PlayerScoreState[];
   dealer: number;
+  sittingOut: number | null;
   firstHand: number;
   bid: number;
   bidder: number | null;
   passed: boolean[];
   trump: Suit | null;
   currentTrick: TrickPlay[];
+  lastTrick: TrickPlay[];
+  lastTrickWinner: number | null;
   trickLeader: number;
   whoseTurn: number | null;
   handSizes: number[];
@@ -84,38 +87,56 @@ export class TysyachaGame {
   phase: Phase = 'idle';
   dealer = 0;
   dealNumber = 0;
-  hands: Card[][] = [[], [], []];
+  hands: Card[][];
   talon: Card[] = [];
   bid = 100;
   bidder: number | null = null;
-  passed: boolean[] = [false, false, false];
+  passed: boolean[];
   biddingTurn = 0;
   firstHand = 0;
   trump: Suit | null = null;
   currentTrick: TrickPlay[] = [];
+  lastTrick: TrickPlay[] = [];
+  lastTrickWinner: number | null = null;
   trickLeader = 0;
   whoseTurn: number | null = null;
   order: number | null = null;
   /** Сколько карт ещё нужно снести и кому */
   discardQueue: number[] = [];
-  marriagesDeclared: Suit[][] = [[], [], []];
-  tricks: Card[][][] = [[], [], []];
-  wonTrickThisDeal: boolean[] = [false, false, false];
+  marriagesDeclared: Suit[][];
+  tricks: Card[][][];
+  wonTrickThisDeal: boolean[];
   message = '';
   winner: number | null = null;
   lastRoundNotes: string[] = [];
-  lastDeltas: number[] = [0, 0, 0];
+  lastDeltas: number[];
   private rng: () => number;
 
   constructor(players: PlayerInfo[], rng: () => number = Math.random) {
-    if (players.length !== 3) throw new Error('Нужно ровно 3 игрока');
+    if (players.length !== 3 && players.length !== 4) throw new Error('Нужно 3 или 4 игрока');
     this.players = players;
     this.scores = players.map(() => createScoreState());
+    this.hands = players.map(() => []);
+    this.passed = players.map(() => false);
+    this.marriagesDeclared = players.map(() => []);
+    this.tricks = players.map(() => []);
+    this.wonTrickThisDeal = players.map(() => false);
+    this.lastDeltas = players.map(() => 0);
     this.rng = rng;
   }
 
+  get sittingOut(): number | null {
+    return this.players.length === 4 ? this.dealer : null;
+  }
+
+  private nextActiveSeat(from: number): number {
+    const next = (from + 1) % this.players.length;
+    return next === this.sittingOut ? (next + 1) % this.players.length : next;
+  }
+
   startGame(dealer = 0): void {
-    this.dealer = dealer % 3;
+    this.dealer = dealer % this.players.length;
+    this.dealNumber = 0;
     this.winner = null;
     this.scores = this.players.map(() => createScoreState());
     this.startDeal();
@@ -126,39 +147,41 @@ export class TysyachaGame {
     this.phase = 'bidding';
     this.trump = null;
     this.currentTrick = [];
+    this.lastTrick = [];
+    this.lastTrickWinner = null;
     this.order = null;
     this.bidder = null;
     this.bid = 100;
-    this.passed = [false, false, false];
-    this.marriagesDeclared = [[], [], []];
-    this.tricks = [[], [], []];
-    this.wonTrickThisDeal = [false, false, false];
+    this.passed = this.players.map((_, seat) => seat === this.sittingOut);
+    this.marriagesDeclared = this.players.map(() => []);
+    this.tricks = this.players.map(() => []);
+    this.wonTrickThisDeal = this.players.map(() => false);
     this.lastRoundNotes = [];
-    this.lastDeltas = [0, 0, 0];
+    this.lastDeltas = this.players.map(() => 0);
     this.discardQueue = [];
 
     const deck = shuffle(makeDeck(), this.rng);
-    this.hands = [[], [], []];
+    this.hands = this.players.map(() => []);
     this.talon = [];
 
-    // Раздача: по одной карте, начиная слева от сдающего; прикуп между 1-м и последним кругом
-    // Упрощённо: 7 каждому + 3 в прикуп (эквивалентный итог)
+    // Четверо: последняя карта идёт в прикуп сдающего.
+    const lastTalonCard = this.sittingOut === null ? undefined : deck.pop();
     let di = 0;
     for (let r = 0; r < 7; r++) {
+      let seat = this.dealer;
       for (let p = 0; p < 3; p++) {
-        const seat = (this.dealer + 1 + p) % 3;
+        seat = this.nextActiveSeat(seat);
         this.hands[seat].push(deck[di++]);
       }
       if (r === 0) {
-        // после первого круга — прикуп из 3 карт
-        this.talon = [deck[di++], deck[di++], deck[di++]];
+        this.talon = [deck[di++], deck[di++], lastTalonCard ?? deck[di++]];
       }
     }
     this.hands = this.hands.map(sortHand);
 
-    this.firstHand = (this.dealer + 1) % 3;
+    this.firstHand = this.nextActiveSeat(this.dealer);
     this.bidder = this.firstHand; // пока сидит на 100
-    this.biddingTurn = (this.firstHand + 1) % 3;
+    this.biddingTurn = this.nextActiveSeat(this.firstHand);
     this.whoseTurn = this.biddingTurn;
     this.message = `${this.players[this.firstHand].name} на стах (100). Ход торговли: ${this.players[this.biddingTurn].name}`;
   }
@@ -174,22 +197,7 @@ export class TysyachaGame {
     if (this.passed[player]) throw new Error('Вы уже спасовали');
 
     if (amount === 'pass') {
-      // Первая рука не может спасовать с обязательных 100, если ещё никто не поднял
-      if (player === this.firstHand && this.bid === 100 && this.bidder === this.firstHand) {
-        const othersActive = this.passed.filter((p, i) => i !== player && !p).length;
-        // Может спасовать только на чужое повышение
-        if (this.bidder === player && this.bid === 100) {
-          // Если ставка всё ещё 100 и bidder — первая рука, значит никто не поднял —
-          // первая рука не может отказаться от ста. Но «пас» при своей очереди после
-          // того как кто-то поднял — можно. Здесь bid===100 и bidder===firstHand => нельзя.
-          throw new Error('Первая рука обязана играть минимум 100, пока ставку не перебили');
-        }
-        void othersActive;
-      }
-      // Если кто-то уже поднял выше 100, первая рука может пасовать
-      if (player === this.firstHand && this.bid === 100 && this.bidder === this.firstHand) {
-        throw new Error('Нельзя спасовать с обязательных ста, пока ставку не перебили');
-      }
+      if (player === this.bidder) throw new Error('Вашу ставку пока не перебили');
 
       this.passed[player] = true;
       this.message = `${this.players[player].name}: пас`;
@@ -210,17 +218,11 @@ export class TysyachaGame {
   }
 
   private advanceBidding(): void {
-    const active = [0, 1, 2].filter((i) => !this.passed[i]);
-    if (active.length === 1) {
-      this.bidder = active[0];
+    let next = this.nextActiveSeat(this.whoseTurn!);
+    while (this.passed[next]) next = this.nextActiveSeat(next);
+    if (next === this.bidder) {
       this.finishBidding();
       return;
-    }
-    // Следующий не спасовавший
-    let next = (this.whoseTurn! + 1) % 3;
-    for (let i = 0; i < 3; i++) {
-      if (!this.passed[next]) break;
-      next = (next + 1) % 3;
     }
     this.whoseTurn = next;
     this.biddingTurn = next;
@@ -237,8 +239,8 @@ export class TysyachaGame {
     this.message = `${this.players[this.bidder].name} выиграл торги на ${this.bid}. Прикуп: открыт. Нужно снести по карте соперникам.`;
     this.phase = 'discard';
     // Очередь сноса: двум соперникам по часовой
-    const a = (this.bidder + 1) % 3;
-    const b = (this.bidder + 2) % 3;
+    const a = this.nextActiveSeat(this.bidder);
+    const b = this.nextActiveSeat(a);
     this.discardQueue = [a, b];
   }
 
@@ -350,7 +352,7 @@ export class TysyachaGame {
     }
 
     if (this.currentTrick.length < 3) {
-      this.whoseTurn = (player + 1) % 3;
+      this.whoseTurn = this.nextActiveSeat(player);
       return;
     }
 
@@ -364,6 +366,8 @@ export class TysyachaGame {
       const verb = who === 'Вы' ? 'берёте' : 'берёт';
       this.message = `${who} ${verb} взятку (${handPoints(cards)} очк.)`;
     }
+    this.lastTrick = this.currentTrick;
+    this.lastTrickWinner = winner;
     this.currentTrick = [];
     this.trickLeader = winner;
     this.whoseTurn = winner;
@@ -404,8 +408,8 @@ export class TysyachaGame {
     return best.player;
   }
 
-  private finishRound(): void {
-    const raw = [0, 1, 2].map((i) => {
+  private roundPoints(): number[] {
+    const points = this.players.map((_, i) => {
       const trickPts = this.tricks[i].reduce(
         (s, t) => s + t.reduce((ss, c) => ss + cardPoints(c), 0),
         0,
@@ -413,16 +417,35 @@ export class TysyachaGame {
       const marPts = this.marriagesDeclared[i].reduce((s, suit) => s + MARRIAGE_POINTS[suit], 0);
       return trickPts + marPts;
     });
+    const sittingOut = this.sittingOut;
+    if (sittingOut !== null && (this.phase === 'roundend' || this.phase === 'gameover')) {
+      points[sittingOut] = this.dealerPoints();
+    }
+    return points;
+  }
+
+  private dealerPoints(): number {
+    return handPoints(this.talon) +
+        findMarriages(this.talon).reduce((sum, suit) => sum + MARRIAGE_POINTS[suit], 0);
+  }
+
+  private finishRound(): void {
+    const raw = this.roundPoints();
+    const sittingOut = this.sittingOut;
+    if (sittingOut !== null) {
+      raw[sittingOut] = this.dealerPoints();
+    }
 
     const result = applyRoundScoring({
       rawPoints: raw,
       bidderIndex: this.bidder!,
       order: this.order!,
       before: this.scores,
+      sittingOut,
     });
 
+    this.lastDeltas = result.after.map((score, i) => score.total - this.scores[i].total);
     this.scores = result.after;
-    this.lastDeltas = result.deltas;
     this.lastRoundNotes = result.notes;
     this.winner = result.winnerIndex;
     this.phase = this.winner !== null ? 'gameover' : 'roundend';
@@ -434,7 +457,7 @@ export class TysyachaGame {
 
   nextDeal(): void {
     if (this.phase !== 'roundend') throw new Error('Рано начинать новую сдачу');
-    this.dealer = (this.dealer + 1) % 3;
+    this.dealer = (this.dealer + 1) % this.players.length;
     this.startDeal();
   }
 
@@ -444,25 +467,21 @@ export class TysyachaGame {
       players: this.players,
       scores: this.scores.map((s) => ({ ...s })),
       dealer: this.dealer,
+      sittingOut: this.sittingOut,
       firstHand: this.firstHand,
       bid: this.bid,
       bidder: this.bidder,
       passed: [...this.passed],
       trump: this.trump,
       currentTrick: this.currentTrick.map((t) => ({ ...t })),
+      lastTrick: this.lastTrick.map((t) => ({ ...t })),
+      lastTrickWinner: this.lastTrickWinner,
       trickLeader: this.trickLeader,
       whoseTurn: this.whoseTurn,
       handSizes: this.hands.map((h) => h.length),
       talon: this.phase === 'discard' || this.phase === 'talonshow' ? [...this.talon] : undefined,
       order: this.order,
-      roundPoints: [0, 1, 2].map((i) => {
-        const trickPts = this.tricks[i].reduce(
-          (s, t) => s + t.reduce((ss, c) => ss + cardPoints(c), 0),
-          0,
-        );
-        const marPts = this.marriagesDeclared[i].reduce((s, suit) => s + MARRIAGE_POINTS[suit], 0);
-        return trickPts + marPts;
-      }),
+      roundPoints: this.roundPoints(),
       marriagesDeclared: this.marriagesDeclared.map((m) => [...m]),
       tricksWon: this.tricks.map((t) => t.length),
       message: this.message,

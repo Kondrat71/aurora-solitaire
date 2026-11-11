@@ -28,6 +28,8 @@ export interface RoundResultInput {
   order: number;
   /** Кто уже был на бочке до записи этой сдачи */
   before: PlayerScoreState[];
+  /** Сдающий на четверых получает очки прикупа и пропускает розыгрыш. */
+  sittingOut?: number | null;
 }
 
 export interface RoundResultOutput {
@@ -45,7 +47,7 @@ export interface RoundResultOutput {
  * — бочка 880, 3 попытки, выход заказом ≥120.
  */
 export function applyRoundScoring(input: RoundResultInput): RoundResultOutput {
-  const { rawPoints, bidderIndex, order, before } = input;
+  const { rawPoints, bidderIndex, order, before, sittingOut } = input;
   const n = before.length;
   const after = before.map((s) => ({ ...s }));
   const deltas = Array(n).fill(0) as number[];
@@ -108,7 +110,7 @@ export function applyRoundScoring(input: RoundResultInput): RoundResultOutput {
       notes.push(`Игрок ${i + 1}: ${rawPoints[i]} → ${rounded}`);
 
       // Болт: 0 очков до округления у соперника играющего
-      if (rawPoints[i] === 0) {
+      if (rawPoints[i] === 0 && i !== sittingOut) {
         after[i].bolts += 1;
         notes.push(`Игрок ${i + 1}: болт (${after[i].bolts}/3)`);
         if (after[i].bolts >= 3) {
