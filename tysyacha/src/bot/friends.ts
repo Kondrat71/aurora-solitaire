@@ -2,7 +2,7 @@ import { Bot, GrammyError, InlineKeyboard, type Context } from 'grammy';
 import { formatCard, formatCards, MARRIAGE_POINTS, SUIT_SYMBOL } from '../game/cards.ts';
 import type { PrivateView, TrickPlay } from '../game/engine.ts';
 import { Rooms, type Member, type Room } from './rooms.ts';
-import { cardAction, escapeHtml, scoreText, tableName } from './ui.ts';
+import { cardAction, escapeHtml, scoreText, tableName, talonNotice } from './ui.ts';
 import { publishPhotoTable } from './table.ts';
 
 const phases = {
@@ -94,16 +94,17 @@ export function roomScreen(room: Room, member: Member, username: string): {
   });
   if (finished && view.sittingOut !== null) {
     const dealer = view.sittingOut;
-    lines.push(`Прикуп игрока ${name(dealer)} · ${view.roundPoints[dealer]} очк. до округления`);
+    lines.push(`Очки сдающего за прикуп · ${name(dealer)} · ${view.roundPoints[dealer]} до округления`);
   }
 
+  const talon = talonNotice(view);
   if (!finished) {
     const contract = view.order === null ? `Ставка <b>${view.bid}</b>` : `Заказ <b>${view.order}</b>`;
     const trump = view.trump ? SUIT_SYMBOL[view.trump] : '—';
-    const declarer = view.bidder === null ? '' : ` · ${name(view.bidder)}`;
+    const declarer = view.bidder === null || talon ? '' : ` · ${name(view.bidder)}`;
     lines.push('', `${contract}${declarer} · Козырь ${trump}`);
   }
-  if (view.talon) lines.push(`<b>Прикуп</b> ${formatCards(view.talon)}`);
+  if (talon) lines.push(talon);
   const marriages = view.marriagesDeclared.flatMap((suits, i) =>
     suits.map((suit) => `${name(i)} ${SUIT_SYMBOL[suit]}+${MARRIAGE_POINTS[suit]}`));
   if (marriages.length) lines.push(`<b>Марьяжи</b> ${marriages.join(' · ')}`);

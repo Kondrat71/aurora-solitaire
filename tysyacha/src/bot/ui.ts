@@ -59,8 +59,10 @@ export function formatStatus(view: PrivateView, webUrl?: string): string {
     lines.push(`Ходит <b>${tableName(view.players[view.whoseTurn].name)}</b>`);
   }
 
-  if (view.talon?.length) {
-    lines.push('', `<b>Прикуп:</b> ${formatCards(view.talon)}`);
+  const talon = talonNotice(view);
+  if (talon) lines.push('', talon);
+  else if (view.phase === 'play' && view.bidder !== null) {
+    lines.push(`Играет <b>${tableName(view.players[view.bidder].name)}</b>`);
   }
   const marriages = view.marriagesDeclared.flatMap((suits, i) =>
     suits.map((suit) => `${tableName(view.players[i].name)} ${SUIT_SYMBOL[suit]}+${MARRIAGE_POINTS[suit]}`));
@@ -155,7 +157,7 @@ export function rulesText(): string {
     '',
     '<b>Торговля:</b> слева от сдающего — 100. Шаг 5. Без марьяжа не выше 120. Пас окончательный.',
     '',
-    '<b>Прикуп:</b> после торгов 3 карты видны всем до конца сдачи. Победитель берёт их, передаёт по одной карте соперникам и объявляет заказ.',
+    '<b>Прикуп:</b> после торгов видно, кто его взял. Три карты открыты всем до первого хода. Победитель передаёт по одной карте соперникам и объявляет заказ.',
     '',
     '<b>Вчетвером:</b> сдающий пропускает торги и розыгрыш. Ему записываются очки карт прикупа с округлением до 5 и стоимость марьяжа, если он есть в прикупе. После каждой сдачи роль переходит следующему игроку.',
     '',
@@ -174,6 +176,11 @@ export function cardAction(card: Card, marriages: Suit[]): string {
 
 export function scoreText(value: number): string {
   return value < 0 ? `−${-value}` : String(value);
+}
+
+export function talonNotice(view: PrivateView): string | undefined {
+  if (!view.talon?.length || view.bidder === null) return undefined;
+  return `Прикуп у <b>${tableName(view.players[view.bidder].name)}</b> · ${formatCards(view.talon)}`;
 }
 
 export function tableName(name: string): string {
