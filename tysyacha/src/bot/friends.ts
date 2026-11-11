@@ -2,7 +2,7 @@ import { Bot, GrammyError, InlineKeyboard, type Context } from 'grammy';
 import { formatCard, formatCards, MARRIAGE_POINTS, SUIT_SYMBOL } from '../game/cards.ts';
 import type { PrivateView, TrickPlay } from '../game/engine.ts';
 import { Rooms, type Member, type Room } from './rooms.ts';
-import { cardAction, escapeHtml, scoreText, tableName, talonNotice } from './ui.ts';
+import { addCardButtons, escapeHtml, scoreText, tableName, talonNotice } from './ui.ts';
 import { publishPhotoTable } from './table.ts';
 import { registerDirectory } from './directory.ts';
 
@@ -142,12 +142,7 @@ export function roomScreen(room: Room, member: Member, username: string): {
     keyboard.row();
   }
   if (myTurn && (view.phase === 'discard' || view.phase === 'play')) {
-    const cards = view.phase === 'discard' ? view.hand : view.hand.filter((card) => view.legalCardIds.includes(card.id));
-    cards.forEach((card, i) => {
-      add(cardAction(card, view.canDeclareMarriage), `card:${card.id}`);
-      if ((i + 1) % 5 === 0) keyboard.row();
-    });
-    keyboard.row();
+    addCardButtons(keyboard, view, (action) => callback(room, action));
     if (view.canDeclareMarriage.length) lines.push('Кнопка с +очками объявит марьяж.');
   }
   if (view.phase === 'roundend') add('➡️ Следующая сдача', 'next').row();

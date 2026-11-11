@@ -4,7 +4,7 @@ import { InputFile } from 'grammy';
 import type { InlineKeyboardMarkup, Message, UserFromGetMe } from 'grammy/types';
 import { createBot } from '../src/bot/index.ts';
 import { createSoloSession } from '../src/bot/sessions.ts';
-import { formatStatus } from '../src/bot/ui.ts';
+import { buildKeyboard, formatStatus } from '../src/bot/ui.ts';
 import { findMarriages, formatCards, handPoints, MARRIAGE_POINTS, makeDeck } from '../src/game/cards.ts';
 import { TysyachaGame } from '../src/game/engine.ts';
 import { applyRoundScoring, createScoreState, roundToFive } from '../src/game/scoring.ts';
@@ -152,6 +152,7 @@ for (const size of [3, 4]) {
       const action = ids.flatMap((id) => {
         const preferred = suffixes.map((suffix) => telegram.action(id, suffix)).find(Boolean);
         const card = telegram.buttons(id).find((item) => 'callback_data' in item && /:card:[^:]+$/.test(item.callback_data ?? ''));
+        if (card) assert.match(card.text, /^[🂡-🃞] /u);
         const data = preferred ?? (card && 'callback_data' in card ? card.callback_data : undefined);
         return data ? [{ id, data }] : [];
       });
@@ -260,6 +261,9 @@ test('бубновый марьяж объявляется ходом корол
   game.playCard(1, '9s');
   game.playCard(2, 'Js');
   assert.equal(game.getPublicView().roundPoints[0], 13);
+  const buttons = buildKeyboard(game.getPrivateView(0), 0).inline_keyboard.flat();
+  assert.ok(buttons.some((button) => 'callback_data' in button && button.callback_data === 'card:Kd' && button.text === '🃎 К♦️ +80'));
+  assert.ok(buttons.some((button) => 'callback_data' in button && button.callback_data === 'card:Qd' && button.text === '🃍 Д♦️ +80'));
   game.playCard(0, 'Kd');
   const view = game.getPublicView();
   assert.equal(view.trump, 'diamonds');
