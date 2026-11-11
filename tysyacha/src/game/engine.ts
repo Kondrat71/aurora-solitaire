@@ -327,16 +327,13 @@ export class TysyachaGame {
     const card = legal.find((c) => c.id === cardId);
     if (!card) throw new Error('Нельзя сыграть эту карту');
 
-    let marriage: Suit | undefined;
-    if (this.currentTrick.length === 0 && declareMarriage) {
-      const can = this.declarableMarriages(player);
-      if (!can.includes(declareMarriage)) {
+    const availableMarriage = (card.rank === 'K' || card.rank === 'Q') &&
+      this.declarableMarriages(player).includes(card.suit) ? card.suit : undefined;
+    const marriage = declareMarriage === undefined ? availableMarriage : declareMarriage ?? undefined;
+    if (marriage) {
+      if (marriage !== availableMarriage) {
         throw new Error('Этот марьяж сейчас объявить нельзя');
       }
-      if (card.suit !== declareMarriage || (card.rank !== 'K' && card.rank !== 'Q')) {
-        throw new Error('Для марьяжа нужно зайти королём или дамой этой масти');
-      }
-      marriage = declareMarriage;
       this.marriagesDeclared[player].push(marriage);
       this.trump = marriage;
       this.message = `${this.players[player].name} захвалил ${MARRIAGE_POINTS[marriage]} (${marriage})! Козырь установлен.`;
@@ -479,7 +476,7 @@ export class TysyachaGame {
       trickLeader: this.trickLeader,
       whoseTurn: this.whoseTurn,
       handSizes: this.hands.map((h) => h.length),
-      talon: this.phase === 'discard' || this.phase === 'talonshow' ? [...this.talon] : undefined,
+      talon: this.phase === 'idle' || this.phase === 'bidding' ? undefined : [...this.talon],
       order: this.order,
       roundPoints: this.roundPoints(),
       marriagesDeclared: this.marriagesDeclared.map((m) => [...m]),

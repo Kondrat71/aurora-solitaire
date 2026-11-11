@@ -8,9 +8,9 @@ import {
   SUIT_SYMBOL,
   MARRIAGE_POINTS,
   SUIT_NAME_RU,
+  type Card,
   type Suit,
 } from '../game/cards.ts';
-import { renderTableSvg } from '../render/svg.ts';
 
 const PHASE_RU: Record<string, string> = {
   idle: 'ожидание',
@@ -35,7 +35,7 @@ export function scoreBlock(view: PrivateView): string {
       ]
         .filter(Boolean)
         .join(', ');
-      return `• <b>${escapeHtml(p.name)}</b>: <b>${s.total}</b>${flags ? ` (${flags})` : ''} · взятки ${view.roundPoints[i]}`;
+      return `• <b>${tableName(p.name)}</b> · <b>${scoreText(s.total)}</b> всего · ${view.roundPoints[i]} за сдачу${flags ? ` (${flags})` : ''}`;
     })
     .join('\n');
 }
@@ -49,12 +49,22 @@ export function formatStatus(view: PrivateView, webUrl?: string): string {
     '',
     scoreBlock(view),
     '',
-    escapeHtml(view.message),
   ];
+  if (view.winner !== null) lines.push(`🏆 ${tableName(view.players[view.winner].name)}`);
+  if (view.whoseTurn === 0) {
+    lines.push('🟢 <b>Ваш ход</b>');
+    const target = view.discardTargets?.[0];
+    if (target !== undefined) lines.push(`Выберите карту для игрока ${tableName(view.players[target].name)}.`);
+  } else if (view.whoseTurn !== null) {
+    lines.push(`Ходит <b>${tableName(view.players[view.whoseTurn].name)}</b>`);
+  }
 
   if (view.talon?.length) {
     lines.push('', `<b>Прикуп:</b> ${formatCards(view.talon)}`);
   }
+  const marriages = view.marriagesDeclared.flatMap((suits, i) =>
+    suits.map((suit) => `${tableName(view.players[i].name)} ${SUIT_SYMBOL[suit]}+${MARRIAGE_POINTS[suit]}`));
+  if (marriages.length) lines.push(`<b>Марьяжи</b> ${marriages.join(' · ')}`);
   if (view.currentTrick.length) {
     lines.push(
       '',
@@ -65,15 +75,11 @@ export function formatStatus(view: PrivateView, webUrl?: string): string {
   lines.push('', `<b>Ваши карты:</b>\n${formatCards(view.hand) || '—'}`);
 
   if (view.canDeclareMarriage.length) {
-    lines.push(
-      '',
-      'Можно захвалить: ' +
-        view.canDeclareMarriage.map((s) => `${SUIT_SYMBOL[s]} ${MARRIAGE_POINTS[s]}`).join(', '),
-    );
+    lines.push('Кнопка с +очками объявит марьяж.');
   }
 
   if (webUrl) {
-    lines.push('', `🖼 <a href="${webUrl}">Открыть красивый стол</a>`);
+    lines.push('', `<a href="${escapeHtml(webUrl).replace(/"/g, '&quot;')}">Веб-демо</a>`);
   }
 
   return lines.join('\n');
@@ -123,16 +129,11 @@ export function buildKeyboard(view: PrivateView, humanIndex: number): InlineKeyb
   }
 
   if (view.phase === 'play' && myTurn) {
-    if (view.canDeclareMarriage.length) {
-      for (const s of view.canDeclareMarriage as Suit[]) {
-        kb.text(`❤️‍🔥 ${SUIT_SYMBOL[s]}${MARRIAGE_POINTS[s]}`, `marry:${s}`).row();
-      }
-    }
     const legal = new Set(view.legalCardIds);
     view.hand
       .filter((c) => legal.has(c.id))
       .forEach((c, i) => {
-        kb.text(formatCard(c), `card:${c.id}`);
+        kb.text(cardAction(c, view.canDeclareMarriage), `card:${c.id}`);
         if ((i + 1) % 4 === 0) kb.row();
       });
     kb.row();
@@ -154,20 +155,30 @@ export function rulesText(): string {
     '',
     '<b>Торговля:</b> слева от сдающего — 100. Шаг 5. Без марьяжа не выше 120. Пас окончательный.',
     '',
-    '<b>Прикуп:</b> победитель берёт 3 карты, сносит по одной соперникам, заказывает ≥ ставки.',
+    '<b>Прикуп:</b> после торгов 3 карты видны всем до конца сдачи. Победитель берёт их, передаёт по одной карте соперникам и объявляет заказ.',
     '',
     '<b>Вчетвером:</b> сдающий пропускает торги и розыгрыш. Ему записываются очки карт прикупа с округлением до 5 и стоимость марьяжа, если он есть в прикупе. После каждой сдачи роль переходит следующему игроку.',
     '',
     '<b>Розыгрыш:</b> ходите в масть; нет масти — козырь; иначе любая. Перебивать старшей не обязательно.',
     '',
-    '<b>Марьяж:</b> после своей взятки зайдите К/Д масти и объявите. ♠40 ♣60 ♦80 ♥100 → новый козырь.',
+    '<b>Марьяж:</b> после своей взятки начните новую взятку королём или дамой, если обе карты одной масти у вас на руках. Бот объявит марьяж автоматически. ♠40 ♣60 ♦80 ♥100 → новый козырь.',
     '',
-    '<b>Запись:</b> играющий получает заказ или −заказ. Остальные — округление до 5. Бочка 880, выход заказом ≥120. Цель — 1000.',
+    '<b>Запись:</b> играющий получает заказ или −заказ. Общий счёт может уйти в минус. Остальные — округление до 5. Бочка 880, выход заказом ≥120. Цель — 1000.',
   ].join('\n');
 }
 
-export function tableSvgFor(view: PrivateView, playerIndex: number): string {
-  return renderTableSvg(view, playerIndex);
+export function cardAction(card: Card, marriages: Suit[]): string {
+  const bonus = (card.rank === 'K' || card.rank === 'Q') && marriages.includes(card.suit);
+  return bonus ? `${formatCard(card)} +${MARRIAGE_POINTS[card.suit]}` : formatCard(card);
+}
+
+export function scoreText(value: number): string {
+  return value < 0 ? `−${-value}` : String(value);
+}
+
+export function tableName(name: string): string {
+  const chars = Array.from(name);
+  return escapeHtml(chars.length > 22 ? chars.slice(0, 21).join('') + '…' : name);
 }
 
 export function escapeHtml(s: string): string {

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { InputFile } from 'grammy';
 import type { InlineKeyboardMarkup, Message, UserFromGetMe } from 'grammy/types';
 import { createBot } from '../src/bot/index.ts';
+import { formatStatus } from '../src/bot/ui.ts';
 import { findMarriages, formatCards, handPoints, MARRIAGE_POINTS, makeDeck } from '../src/game/cards.ts';
 import { TysyachaGame } from '../src/game/engine.ts';
 import { applyRoundScoring, createScoreState, roundToFive } from '../src/game/scoring.ts';
@@ -15,21 +17,28 @@ const botInfo: UserFromGetMe = {
 
 function fakeTelegram() {
   const bot = createBot('test-token', { botInfo });
-  const boards = new Map<number, Message.TextMessage>();
+  const boards = new Map<number, Message.TextMessage | Message.PhotoMessage>();
   const answers: string[] = [];
   let sequence = 0;
   const player = (id: number) => ({ id, is_bot: false as const, first_name: `Игрок ${id}` });
   const chat = (id: number) => ({ id, type: 'private' as const, first_name: player(id).first_name });
 
   bot.api.config.use(async (_prev, method, input) => {
-    if (method === 'sendMessage' || method === 'editMessageText') {
+    if (method === 'sendMessage' || method === 'editMessageText' || method === 'sendPhoto' || method === 'editMessageMedia') {
       const payload = input as {
-        chat_id: number; message_id?: number; text: string; reply_markup?: InlineKeyboardMarkup;
+        chat_id: number; message_id?: number; text?: string; reply_markup?: InlineKeyboardMarkup;
+        photo?: InputFile; caption?: string; media?: { media: InputFile; caption: string };
       };
-      const message: Message.TextMessage = {
+      const base = {
         message_id: payload.message_id ?? ++sequence, date: 0, chat: chat(payload.chat_id),
-        from: botInfo, text: payload.text, reply_markup: payload.reply_markup,
+        from: botInfo, reply_markup: payload.reply_markup,
       };
+      const picture = method === 'sendPhoto' || method === 'editMessageMedia';
+      if (picture) assert.ok((payload.photo ?? payload.media?.media) instanceof InputFile);
+      const message = picture ? {
+        ...base, caption: payload.caption ?? payload.media?.caption,
+        photo: [{ file_id: 'board', file_unique_id: 'board', width: 760, height: 590 }],
+      } : { ...base, text: payload.text! };
       boards.set(payload.chat_id, message);
       return { ok: true, result: message } as never;
     }
@@ -44,7 +53,7 @@ function fakeTelegram() {
   function board(id: number) {
     const message = boards.get(id);
     assert.ok(message);
-    return message;
+    return { ...message, text: 'text' in message ? message.text : message.caption ?? '' };
   }
   function buttons(id: number) {
     return board(id).reply_markup?.inline_keyboard.flat() ?? [];
@@ -95,6 +104,7 @@ for (const size of [3, 4]) {
     await telegram.press(ids[1], start);
     assert.match(telegram.answers.at(-1) ?? '', /создатель/);
     await telegram.press(host, start);
+    assert.ok(ids.every((id) => 'photo' in telegram.board(id)));
 
     const allHands = ids.map((id) => telegram.board(id).text.split('<b>Ваши карты</b>\n')[1]);
     const dealt = allHands.filter(Boolean).map((cards) => cards.split(' '));
@@ -129,9 +139,12 @@ for (const size of [3, 4]) {
     assert.equal(cardsPlayed, 24);
     const next = telegram.action(host, ':next');
     assert.ok(next);
+    assert.ok(ids.every((id) => telegram.board(id).text.includes('<b>Прикуп</b>')));
+    assert.match(telegram.board(host).text, /Общий счёт · очки за сдачу/);
     if (size === 4) assert.match(telegram.board(host).text, /Прикуп игрока/);
     await telegram.press(host, next);
     assert.match(telegram.board(host).text, /Сдача 2/);
+    assert.ok(ids.every((id) => !telegram.board(id).text.includes('<b>Прикуп</b>')));
     if (size === 4) {
       const oldDealer = allHands.findIndex((hand) => hand === undefined);
       const newDealer = ids.findIndex((id) => !telegram.board(id).text.includes('<b>Ваши карты</b>'));
@@ -139,6 +152,42 @@ for (const size of [3, 4]) {
     }
   });
 }
+
+test('Telegram: одиночный стол тоже отправляется как фото', async () => {
+  const telegram = fakeTelegram();
+  await telegram.command(101, '/new');
+  assert.ok('photo' in telegram.board(101));
+  assert.match(telegram.board(101).text, /всего · \d+ за сдачу/);
+});
+
+test('бубновый марьяж объявляется ходом королём после взятки', () => {
+  const game = new TysyachaGame(Array.from({ length: 3 }, (_, i) => ({ id: String(i), name: `Игрок ${i}`, isBot: false })));
+  const deck = makeDeck();
+  const card = (id: string) => deck.find((candidate) => candidate.id === id)!;
+  game.phase = 'play';
+  game.whoseTurn = 0;
+  game.hands = [[card('As'), card('Kd'), card('Qd')], [card('9s'), card('9d')], [card('Js'), card('Jd')]];
+  assert.deepEqual(game.declarableMarriages(0), []);
+  game.playCard(0, 'As');
+  game.playCard(1, '9s');
+  game.playCard(2, 'Js');
+  assert.equal(game.getPublicView().roundPoints[0], 13);
+  game.playCard(0, 'Kd');
+  const view = game.getPublicView();
+  assert.equal(view.trump, 'diamonds');
+  assert.equal(view.currentTrick[0].marriage, 'diamonds');
+  assert.equal(view.roundPoints[0], 93);
+  assert.deepEqual(view.marriagesDeclared[0], ['diamonds']);
+});
+
+test('общий счёт остаётся отрицательным после недобора и виден в Telegram', () => {
+  const game = new TysyachaGame(Array.from({ length: 3 }, (_, i) => ({ id: String(i), name: `Игрок ${i}`, isBot: false })));
+  game.scores = applyRoundScoring({
+    rawPoints: [70, 30, 20], bidderIndex: 0, order: 100, before: game.scores,
+  }).after;
+  assert.equal(game.scores[0].total, -100);
+  assert.match(formatStatus(game.getPrivateView(0)), /<b>−100<\/b> всего/);
+});
 
 test('на четверых сдающий получает округлённые очки и марьяж прикупа', () => {
   const game = new TysyachaGame(Array.from({ length: 4 }, (_, i) => ({ id: String(i), name: `Игрок ${i}`, isBot: false })));

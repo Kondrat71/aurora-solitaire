@@ -1,8 +1,9 @@
 import { Bot, GrammyError, InlineKeyboard, type Context } from 'grammy';
 import { formatCard, formatCards, MARRIAGE_POINTS, SUIT_SYMBOL } from '../game/cards.ts';
-import type { TrickPlay } from '../game/engine.ts';
+import type { PrivateView, TrickPlay } from '../game/engine.ts';
 import { Rooms, type Member, type Room } from './rooms.ts';
-import { escapeHtml } from './ui.ts';
+import { cardAction, escapeHtml, scoreText, tableName } from './ui.ts';
+import { publishPhotoTable } from './table.ts';
 
 const phases = {
   idle: 'Ожидание', bidding: 'Торги', talonshow: 'Прикуп', discard: 'Передача карт',
@@ -21,11 +22,13 @@ function callback(room: Room, action: string): string {
   return `r:${room.id}:${room.revision}:${action}`;
 }
 
-export function roomScreen(room: Room, member: Member, username: string): { text: string; keyboard: InlineKeyboard } {
+export function roomScreen(room: Room, member: Member, username: string): {
+  text: string; keyboard: InlineKeyboard; view?: PrivateView; seat: number;
+} {
   const seat = room.members.indexOf(member);
   const keyboard = new InlineKeyboard();
   const add = (label: string, action: string) => keyboard.text(label, callback(room, action));
-  const name = (i: number) => escapeHtml(room.members[i].name);
+  const name = (i: number) => tableName(room.members[i].name);
   const game = room.game;
   if (!game) {
     const invite = `https://t.me/${username}?start=join_${room.id}`;
@@ -45,7 +48,7 @@ export function roomScreen(room: Room, member: Member, username: string): { text
     if (!full) keyboard.url('📨 Пригласить друзей', share).row();
     if (full && seat === 0) add('▶️ Начать партию', 'start').row();
     add('Выйти из комнаты', 'leave');
-    return { text: lines.join('\n'), keyboard };
+    return { text: lines.join('\n'), keyboard, seat };
   }
 
   const view = game.getPrivateView(seat);
@@ -76,7 +79,7 @@ export function roomScreen(room: Room, member: Member, username: string): { text
   }
   if (!finished && seat === view.sittingOut) lines.push('Вы на прикупе в этой сдаче.');
 
-  lines.push('', '<b>Счёт</b>');
+  lines.push('', '<b>Общий счёт · очки за сдачу</b>');
   view.scores.forEach((score, i) => {
     const flags = [
       seat === i ? 'вы' : '',
@@ -85,8 +88,9 @@ export function roomScreen(room: Room, member: Member, username: string): { text
       view.phase === 'bidding' && i !== view.sittingOut && view.passed[i] ? 'пас' : '',
     ].filter(Boolean);
     const delta = game.lastDeltas[i];
-    const change = finished ? ` (${delta > 0 ? '+' : ''}${delta})` : '';
-    lines.push(`${name(i)} · <b>${score.total}</b>${change}${flags.length ? ` · ${flags.join(', ')}` : ''}`);
+    const change = finished ? ` (${delta > 0 ? '+' : ''}${scoreText(delta)})` : '';
+    const round = !finished && view.sittingOut === i ? '—' : view.roundPoints[i];
+    lines.push(`${name(i)} · <b>${scoreText(score.total)}</b>${change} · ${round}${flags.length ? ` · ${flags.join(', ')}` : ''}`);
   });
   if (finished && view.sittingOut !== null) {
     const dealer = view.sittingOut;
@@ -100,6 +104,9 @@ export function roomScreen(room: Room, member: Member, username: string): { text
     lines.push('', `${contract}${declarer} · Козырь ${trump}`);
   }
   if (view.talon) lines.push(`<b>Прикуп</b> ${formatCards(view.talon)}`);
+  const marriages = view.marriagesDeclared.flatMap((suits, i) =>
+    suits.map((suit) => `${name(i)} ${SUIT_SYMBOL[suit]}+${MARRIAGE_POINTS[suit]}`));
+  if (marriages.length) lines.push(`<b>Марьяжи</b> ${marriages.join(' · ')}`);
   const trickText = (trick: TrickPlay[]) => trick.map(({ player, card }) => `${name(player)} ${formatCard(card)}`).join(' · ');
   if (view.lastTrickWinner !== null) {
     lines.push(`<b>Последняя взятка</b> · ${name(view.lastTrickWinner)}\n${trickText(view.lastTrick)}`);
@@ -122,22 +129,16 @@ export function roomScreen(room: Room, member: Member, username: string): { text
   if (myTurn && (view.phase === 'discard' || view.phase === 'play')) {
     const cards = view.phase === 'discard' ? view.hand : view.hand.filter((card) => view.legalCardIds.includes(card.id));
     cards.forEach((card, i) => {
-      add(formatCard(card), `card:${card.id}`);
+      add(cardAction(card, view.canDeclareMarriage), `card:${card.id}`);
       if ((i + 1) % 5 === 0) keyboard.row();
     });
     keyboard.row();
-    if (view.canDeclareMarriage.length) lines.push('Чтобы объявить марьяж, выберите отдельную кнопку с бонусом.');
-    for (const suit of view.canDeclareMarriage) {
-      for (const card of cards.filter((card) => card.suit === suit && (card.rank === 'K' || card.rank === 'Q'))) {
-        add(`Марьяж ${formatCard(card)} +${MARRIAGE_POINTS[suit]}`, `card:${card.id}:${suit}`);
-      }
-      keyboard.row();
-    }
+    if (view.canDeclareMarriage.length) lines.push('Кнопка с +очками объявит марьяж.');
   }
   if (view.phase === 'roundend') add('➡️ Следующая сдача', 'next').row();
   if (view.phase === 'gameover' && seat === 0) add('🔁 Сыграть ещё', 'restart').row();
   add('Выйти из комнаты', 'leave');
-  return { text: lines.join('\n'), keyboard };
+  return { text: lines.join('\n'), keyboard, view, seat };
 }
 
 export function registerFriends(bot: Bot): void {
@@ -146,7 +147,11 @@ export function registerFriends(bot: Bot): void {
   const showMenu = (ctx: Context) => ctx.reply(menuText, { parse_mode: 'HTML', reply_markup: menu() });
 
   async function updateTable(room: Room, member: Member): Promise<void> {
-    const { text, keyboard } = roomScreen(room, member, bot.botInfo.username);
+    const { text, keyboard, view, seat } = roomScreen(room, member, bot.botInfo.username);
+    if (view) {
+      member.messageId = await publishPhotoTable(bot.api, member.id, member.messageId, view, seat, text, keyboard);
+      return;
+    }
     const options = { parse_mode: 'HTML' as const, reply_markup: keyboard };
     if (member.messageId !== undefined) {
       try {
