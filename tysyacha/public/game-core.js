@@ -278,12 +278,23 @@ export class TysyachaGame {
   setOrder(player, amount) {
     if (this.phase !== 'order' || player !== this.bidder) throw new Error('Заказ недоступен');
     if (amount % 5 !== 0 || amount < this.bid) throw new Error('Неверный заказ');
+    const handMax = maxBidForHand(this.hands[player]);
+    if (amount > this.bid && amount > handMax) {
+      throw new Error(`Максимум по картам после сноса: ${handMax}`);
+    }
     this.order = amount;
     this.phase = 'play';
     this.trickLeader = this.bidder;
     this.whoseTurn = this.bidder;
     this.currentTrick = [];
     this.message = `Заказ ${amount}. Ходит ${this.players[this.bidder].name}`;
+  }
+
+  orderOptions(player) {
+    const handMax = Math.max(this.bid, maxBidForHand(this.hands[player]));
+    const opts = [];
+    for (let v = this.bid; v <= handMax; v += 5) opts.push(v);
+    return opts;
   }
 
   declarableMarriages(player) {
@@ -422,6 +433,7 @@ export class TysyachaGame {
       canDeclareMarriage: this.declarableMarriages(player),
       maxBid: this.maxBid(player),
       discardTargets: this.phase === 'discard' && player === this.bidder ? [...this.discardQueue] : undefined,
+      orderOptions: this.phase === 'order' ? this.orderOptions(player) : [],
       lastRoundNotes: this.lastRoundNotes,
     };
   }

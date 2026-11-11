@@ -9,6 +9,7 @@ import {
 const HUMAN = 0;
 let game = null;
 let pendingMarriage = null;
+let animateHand = true;
 
 const el = {
   scores: document.getElementById('scores'),
@@ -120,6 +121,7 @@ function render() {
 
   // Рука
   el.hand.innerHTML = '';
+  el.hand.classList.toggle('no-deal-anim', !animateHand);
   const legal = new Set(view.legalCardIds);
   const canClick =
     view.whoseTurn === HUMAN && (view.phase === 'play' || view.phase === 'discard');
@@ -137,6 +139,12 @@ function render() {
       }),
     );
   });
+  if (animateHand) {
+    // анимация раздачи только один раз за сдачу
+    requestAnimationFrame(() => {
+      animateHand = false;
+    });
+  }
 
   // Действия
   el.actions.innerHTML = '';
@@ -157,14 +165,44 @@ function render() {
   }
 
   if (view.phase === 'order' && view.whoseTurn === HUMAN) {
-    [0, 5, 10, 20].forEach((add) => {
-      const val = view.bid + add;
+    const options = view.orderOptions?.length
+      ? view.orderOptions
+      : (() => {
+          const max = Math.max(view.bid, view.maxBid);
+          const list = [];
+          for (let v = view.bid; v <= max; v += 5) list.push(v);
+          return list;
+        })();
+    // Не засоряем панель: ставка, несколько шагов и максимум
+    const shown = new Set();
+    const picks = [];
+    for (const v of options) {
+      if (
+        v === view.bid ||
+        v === options[options.length - 1] ||
+        v === view.bid + 5 ||
+        v === view.bid + 10 ||
+        v === view.bid + 20 ||
+        v === view.bid + 40 ||
+        v % 20 === 0
+      ) {
+        if (!shown.has(v)) {
+          shown.add(v);
+          picks.push(v);
+        }
+      }
+    }
+    picks.forEach((val, idx) => {
       const b = document.createElement('button');
-      b.className = add === 0 ? 'btn primary' : 'btn';
+      b.className = idx === 0 ? 'btn primary' : 'btn';
       b.textContent = String(val);
       b.onclick = () => act(() => game.setOrder(HUMAN, val));
       el.actions.appendChild(b);
     });
+    const info = document.createElement('div');
+    info.style.cssText = 'width:100%;font-size:0.8rem;color:#d7e6dc;opacity:.85';
+    info.textContent = `Диапазон заказа: ${view.bid}–${options[options.length - 1]}`;
+    el.actions.appendChild(info);
   }
 
   if (view.phase === 'play' && view.canDeclareMarriage.length) {
@@ -242,6 +280,7 @@ function newGame() {
     { id: 'bot2', name: 'Восток', isBot: true },
   ]);
   pendingMarriage = null;
+  animateHand = true;
   el.log.innerHTML = '';
   game.startGame(Math.floor(Math.random() * 3));
   log('Новая партия. Удачи за столом!');
@@ -251,6 +290,7 @@ function newGame() {
 
 el.btnNew.addEventListener('click', newGame);
 el.btnNext.addEventListener('click', () => {
+  animateHand = true;
   act(() => game.nextDeal());
 });
 el.btnRules.addEventListener('click', () => el.rulesDialog.showModal());

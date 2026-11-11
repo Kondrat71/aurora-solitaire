@@ -149,3 +149,42 @@ describe('shuffle', () => {
     assert.equal(new Set(s.map((c) => c.id)).size, 24);
   });
 });
+
+describe('заказ', () => {
+  it('нельзя повысить заказ выше марьяжей на руке', () => {
+    const g = new TysyachaGame([
+      { id: 'a', name: 'A', isBot: false },
+      { id: 'b', name: 'B', isBot: true },
+      { id: 'c', name: 'C', isBot: true },
+    ]);
+    g.startGame(0);
+    // форсируем фазу заказа без марьяжа
+    g.phase = 'order';
+    g.bidder = 0;
+    g.whoseTurn = 0;
+    g.bid = 100;
+    g.hands[0] = [
+      { suit: 'spades', rank: 'A', id: 'As' },
+      { suit: 'hearts', rank: '10', id: '10h' },
+    ];
+    assert.throws(() => g.setOrder(0, 140), /Максимум/);
+    g.setOrder(0, 100);
+    assert.equal(g.order, 100);
+  });
+
+  it('ставку торгов можно оставить выше текущего max после сноса', () => {
+    const g = new TysyachaGame([
+      { id: 'a', name: 'A', isBot: false },
+      { id: 'b', name: 'B', isBot: true },
+      { id: 'c', name: 'C', isBot: true },
+    ]);
+    g.startGame(0);
+    g.phase = 'order';
+    g.bidder = 0;
+    g.whoseTurn = 0;
+    g.bid = 160;
+    g.hands[0] = [{ suit: 'spades', rank: 'A', id: 'As' }]; // марьяжа уже нет
+    g.setOrder(0, 160);
+    assert.equal(g.order, 160);
+  });
+});

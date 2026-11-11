@@ -5,7 +5,7 @@
 
 import { Bot, InputFile } from 'grammy';
 import { createSoloSession, deleteSession, getSession } from './sessions.ts';
-import { buildKeyboard, formatStatus, rulesText, tableSvgFor } from './ui.ts';
+import { buildKeyboard, escapeHtml, formatStatus, rulesText, tableSvgFor } from './ui.ts';
 import { runBotsUntilHuman } from '../game/ai.ts';
 import type { Suit } from '../game/cards.ts';
 import { startWebServer } from '../web/server.ts';
@@ -77,7 +77,7 @@ export async function startBot(): Promise<void> {
     createSoloSession(ctx.chat.id, name);
     pendingMarriage.delete(ctx.chat.id);
     await ctx.reply(
-      `Добро пожаловать в <b>Тысячу</b>, ${name}!\nВы играете против двух ботов. Удачи за сукном.`,
+      `Добро пожаловать в <b>Тысячу</b>, ${escapeHtml(name)}!\nВы играете против двух ботов. Удачи за сукном.`,
       { parse_mode: 'HTML' },
     );
     await refresh(ctx, { sendSvg: true });

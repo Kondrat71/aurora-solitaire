@@ -75,6 +75,7 @@ export interface PrivateView extends PublicGameView {
   canDeclareMarriage: Suit[];
   maxBid: number;
   discardTargets?: number[];
+  orderOptions: number[];
 }
 
 export class TysyachaGame {
@@ -269,19 +270,26 @@ export class TysyachaGame {
     if (player !== this.bidder) throw new Error('Заказывает победитель торгов');
     if (amount % 5 !== 0) throw new Error('Заказ кратен 5');
     if (amount < this.bid) throw new Error(`Нельзя меньше ставки торгов (${this.bid})`);
-    if (amount > this.maxBid(player) && amount > this.bid) {
-      // после прикупа марьяжи могли измениться — считаем по новой руке
-      if (amount > maxBidForHand(this.hands[player]) && amount > this.bid) {
-        // Разрешаем заказ = bid даже если выше теоретического макса после сноса
-      }
+    // Ставку торгов всегда можно оставить, даже если после сноса марьяж пропал.
+    // Повышать заказ — только в пределах 120 + марьяжи на текущей руке.
+    const handMax = maxBidForHand(this.hands[player]);
+    if (amount > this.bid && amount > handMax) {
+      throw new Error(`Максимум по картам после сноса: ${handMax}`);
     }
-    // На бочке минимум 120 для выхода, но заказ <120 тоже можно (попытка)
     this.order = amount;
     this.phase = 'play';
     this.trickLeader = this.bidder!;
     this.whoseTurn = this.bidder;
     this.currentTrick = [];
     this.message = `Заказ: ${amount}. Ходит ${this.players[this.bidder!].name}`;
+  }
+
+  /** Доступные значения окончательного заказа */
+  orderOptions(player: number): number[] {
+    const handMax = Math.max(this.bid, maxBidForHand(this.hands[player]));
+    const opts: number[] = [];
+    for (let v = this.bid; v <= handMax; v += 5) opts.push(v);
+    return opts;
   }
 
   /** Какие марьяжи можно объявить сейчас */
@@ -472,6 +480,7 @@ export class TysyachaGame {
       canDeclareMarriage: this.declarableMarriages(player),
       maxBid: this.maxBid(player),
       discardTargets: this.phase === 'discard' && player === this.bidder ? [...this.discardQueue] : undefined,
+      orderOptions: this.phase === 'order' ? this.orderOptions(player) : [],
     };
   }
 

@@ -90,9 +90,27 @@ export function buildKeyboard(view: PrivateView, humanIndex: number): InlineKeyb
   }
 
   if (view.phase === 'order' && myTurn) {
-    for (const add of [0, 5, 10, 20]) {
-      kb.text(String(view.bid + add), `order:${view.bid + add}`);
+    const options = view.orderOptions.length
+      ? view.orderOptions
+      : [view.bid];
+    const picks = new Set<number>();
+    for (const v of options) {
+      if (
+        v === view.bid ||
+        v === options[options.length - 1] ||
+        v === view.bid + 5 ||
+        v === view.bid + 10 ||
+        v === view.bid + 20 ||
+        v === view.bid + 40 ||
+        v % 20 === 0
+      ) {
+        picks.add(v);
+      }
     }
+    [...picks].sort((a, b) => a - b).forEach((val, i) => {
+      kb.text(String(val), `order:${val}`);
+      if ((i + 1) % 4 === 0) kb.row();
+    });
     kb.row();
   }
 
@@ -150,6 +168,6 @@ export function tableSvgFor(view: PrivateView, playerIndex: number): string {
   return renderTableSvg(view, playerIndex);
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

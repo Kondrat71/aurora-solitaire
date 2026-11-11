@@ -259,6 +259,9 @@ body {
   transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s;
   animation: deal-in 0.45s ease both;
 }
+.hand.no-deal-anim .card {
+  animation: none;
+}
 @keyframes deal-in {
   from { transform: translateY(24px) scale(0.92); opacity: 0; }
   to { transform: translateY(0) scale(1); opacity: 1; }
