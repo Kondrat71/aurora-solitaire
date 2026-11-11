@@ -56,7 +56,8 @@ export function formatStatus(view: PrivateView, webUrl?: string): string {
     const target = view.discardTargets?.[0];
     if (target !== undefined) lines.push(`Выберите карту для игрока ${tableName(view.players[target].name)}.`);
   } else if (view.whoseTurn !== null) {
-    lines.push(`Ходит <b>${tableName(view.players[view.whoseTurn].name)}</b>`);
+    const name = tableName(view.players[view.whoseTurn].name);
+    lines.push(botOpening(view) ? `Первым ходит <b>${name}</b>. Нажмите «Начать розыгрыш».` : `Ходит <b>${name}</b>`);
   }
 
   const talon = talonNotice(view);
@@ -145,8 +146,14 @@ export function buildKeyboard(view: PrivateView, humanIndex: number): InlineKeyb
     kb.text('➡️ Следующая сдача', 'next').row();
   }
 
+  if (botOpening(view)) kb.text('▶️ Начать розыгрыш', 'solo:lead').row();
   kb.text('🪑 Столы', 'tables:open').text('🔄 Новая партия', 'new').text('📖 Правила', 'rules');
   return kb;
+}
+
+function botOpening(view: PrivateView): boolean {
+  return view.phase === 'play' && Boolean(view.talon?.length) &&
+    view.whoseTurn !== null && view.players[view.whoseTurn].isBot;
 }
 
 export function rulesText(): string {

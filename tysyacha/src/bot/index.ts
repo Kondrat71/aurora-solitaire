@@ -6,7 +6,7 @@
 import { Bot, type BotConfig, type Context } from 'grammy';
 import { createSoloSession, deleteSession, getSession } from './sessions.ts';
 import { buildKeyboard, escapeHtml, formatStatus, rulesText } from './ui.ts';
-import { runBotsUntilHuman } from '../game/ai.ts';
+import { botAct, runBotsUntilHuman } from '../game/ai.ts';
 import { startWebServer } from '../web/server.ts';
 import { pathToFileURL } from 'node:url';
 import { registerFriends } from './friends.ts';
@@ -21,7 +21,7 @@ async function refresh(ctx: Context, edit = false): Promise<void> {
     return;
   }
 
-  runBotsUntilHuman(session.game, session.humanIndex);
+  runBotsUntilHuman(session.game, session.humanIndex, { pauseAtOpening: true });
   const view = session.game.getPrivateView(session.humanIndex);
   const text = formatStatus(view, process.env.WEB_URL);
   const keyboard = buildKeyboard(view, session.humanIndex);
@@ -94,6 +94,19 @@ export function createBot(token: string, config?: BotConfig<Context>): Bot {
 
       const g = session.game;
       const hi = session.humanIndex;
+
+      if (data === 'solo:lead') {
+        const turn = g.whoseTurn;
+        if (!g.awaitingOpeningLead || turn === null || !g.players[turn].isBot ||
+            ctx.callbackQuery.message?.message_id !== session.messageId) {
+          await ctx.answerCallbackQuery({ text: 'Стол уже обновился' });
+          return;
+        }
+        botAct(g, turn);
+        await ctx.answerCallbackQuery();
+        await refresh(ctx, true);
+        return;
+      }
 
       if (data === 'next') {
         g.nextDeal();
