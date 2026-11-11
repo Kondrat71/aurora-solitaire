@@ -111,7 +111,8 @@ for (const size of [3, 4]) {
     assert.deepEqual(dealt.map((cards) => cards.length), [7, 7, 7]);
     assert.equal(new Set(dealt.flat()).size, 21);
     assert.equal(allHands.filter((hand) => hand === undefined).length, size - 3);
-    assert.ok(ids.every((id) => !telegram.board(id).text.includes('<b>Прикуп</b>')));
+    const seesTalon = (id: number) => telegram.board(id).text.includes('Прикуп у <b>');
+    assert.ok(ids.every((id) => !seesTalon(id)));
 
     const firstTurn = ids.find((id) => telegram.action(id, ':bid:pass'))!;
     const pass = telegram.action(firstTurn, ':bid:pass')!;
@@ -123,6 +124,7 @@ for (const size of [3, 4]) {
     assert.match(telegram.answers.at(-1) ?? '', /Стол обновился/);
 
     let cardsPlayed = 0;
+    let sawAuctionWinner = false;
     for (let step = 0; step < 36 && !telegram.action(host, ':next'); step++) {
       const suffixes = [':bid:pass', ':order:100'];
       const action = ids.flatMap((id) => {
@@ -133,18 +135,28 @@ for (const size of [3, 4]) {
       });
       assert.equal(action.length, 1, 'активные кнопки есть только у игрока, чей ход');
       const { id, data } = action[0];
-      if (telegram.board(id).text.includes('· Розыгрыш')) cardsPlayed++;
+      if (data.endsWith(':order:100')) {
+        const winner = `Прикуп у <b>Игрок ${id}</b>`;
+        assert.ok(ids.every((recipient) => telegram.board(recipient).text.includes(winner)));
+        sawAuctionWinner = true;
+      }
+      if (telegram.board(id).text.includes('· Розыгрыш')) {
+        assert.ok(ids.every((recipient) => seesTalon(recipient) === (cardsPlayed === 0)));
+        cardsPlayed++;
+      }
       await telegram.press(id, data);
+      if (cardsPlayed > 0) assert.ok(ids.every((recipient) => !seesTalon(recipient)));
     }
+    assert.ok(sawAuctionWinner);
     assert.equal(cardsPlayed, 24);
     const next = telegram.action(host, ':next');
     assert.ok(next);
-    assert.ok(ids.every((id) => telegram.board(id).text.includes('<b>Прикуп</b>')));
+    assert.ok(ids.every((id) => !seesTalon(id)));
     assert.match(telegram.board(host).text, /Общий счёт · очки за сдачу/);
-    if (size === 4) assert.match(telegram.board(host).text, /Прикуп игрока/);
+    if (size === 4) assert.match(telegram.board(host).text, /Очки сдающего за прикуп/);
     await telegram.press(host, next);
     assert.match(telegram.board(host).text, /Сдача 2/);
-    assert.ok(ids.every((id) => !telegram.board(id).text.includes('<b>Прикуп</b>')));
+    assert.ok(ids.every((id) => !seesTalon(id)));
     if (size === 4) {
       const oldDealer = allHands.findIndex((hand) => hand === undefined);
       const newDealer = ids.findIndex((id) => !telegram.board(id).text.includes('<b>Ваши карты</b>'));

@@ -459,6 +459,8 @@ export class TysyachaGame {
   }
 
   getPublicView(): PublicGameView {
+    const beforeFirstCard = this.phase === 'play' && this.currentTrick.length === 0 && this.lastTrickWinner === null;
+    const showTalon = this.phase === 'talonshow' || this.phase === 'discard' || this.phase === 'order' || beforeFirstCard;
     return {
       phase: this.phase,
       players: this.players,
@@ -476,7 +478,7 @@ export class TysyachaGame {
       trickLeader: this.trickLeader,
       whoseTurn: this.whoseTurn,
       handSizes: this.hands.map((h) => h.length),
-      talon: this.phase === 'idle' || this.phase === 'bidding' ? undefined : [...this.talon],
+      talon: showTalon ? [...this.talon] : undefined,
       order: this.order,
       roundPoints: this.roundPoints(),
       marriagesDeclared: this.marriagesDeclared.map((m) => [...m]),
