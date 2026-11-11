@@ -1,5 +1,4 @@
 import { randomBytes, randomInt } from 'node:crypto';
-import { SUITS } from '../game/cards.ts';
 import { TysyachaGame } from '../game/engine.ts';
 
 export interface Member {
@@ -53,7 +52,7 @@ export class Rooms {
     const seat = room.members.findIndex((member) => member.id === id);
     if (seat < 0) throw new Error('Вы не за этим столом');
     if (revision !== room.revision) throw new Error('Стол обновился. Используйте свежие кнопки');
-    const [kind, value, extra] = action.split(':');
+    const [kind, value] = action.split(':');
     const game = room.game;
 
     if (!game) {
@@ -71,14 +70,10 @@ export class Rooms {
       game.placeBid(seat, value === 'pass' ? value : Number(value));
     } else if (kind === 'order') {
       game.setOrder(seat, Number(value));
-    } else if (kind === 'card' && game.phase === 'discard' && !extra) {
+    } else if (kind === 'card' && game.phase === 'discard') {
       game.discardCard(seat, value);
     } else if (kind === 'card' && game.phase === 'play') {
-      const suit = SUITS.find((candidate) => candidate === extra);
-      if (extra && (!suit || !game.declarableMarriages(seat).includes(suit))) {
-        throw new Error('Этот марьяж сейчас недоступен');
-      }
-      game.playCard(seat, value, suit);
+      game.playCard(seat, value);
     } else {
       throw new Error('Действие сейчас недоступно');
     }
