@@ -187,13 +187,18 @@ function resolveWinner(
 }
 
 /** Прокрутить ходы ботов, пока ход не у человека или фаза не ждёт игрока */
-export function runBotsUntilHuman(game: TysyachaGame, humanIndex: number, maxSteps = 40): void {
+export function runBotsUntilHuman(
+  game: TysyachaGame,
+  humanIndex: number,
+  { maxSteps = 40, pauseAtOpening = false }: { maxSteps?: number; pauseAtOpening?: boolean } = {},
+): void {
   let steps = 0;
   while (steps++ < maxSteps) {
     if (game.phase === 'roundend' || game.phase === 'gameover' || game.phase === 'idle') break;
     const turn = game.whoseTurn;
     if (turn === null || turn === humanIndex) break;
     if (!game.players[turn].isBot) break;
+    if (pauseAtOpening && game.awaitingOpeningLead) break;
     botAct(game, turn);
   }
 }

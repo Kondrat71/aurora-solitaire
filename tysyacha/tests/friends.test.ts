@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { InputFile } from 'grammy';
 import type { InlineKeyboardMarkup, Message, UserFromGetMe } from 'grammy/types';
 import { createBot } from '../src/bot/index.ts';
+import { createSoloSession } from '../src/bot/sessions.ts';
 import { formatStatus } from '../src/bot/ui.ts';
 import { findMarriages, formatCards, handPoints, MARRIAGE_POINTS, makeDeck } from '../src/game/cards.ts';
 import { TysyachaGame } from '../src/game/engine.ts';
@@ -201,6 +202,34 @@ test('Telegram: одиночный стол тоже отправляется к
   assert.ok('photo' in telegram.board(101));
   assert.match(telegram.board(101).text, /всего · \d+ за сдачу/);
   await telegram.command(101, '/stop');
+});
+
+test('Telegram: выигравший торги бот ждёт показа прикупа перед первым ходом', async () => {
+  const telegram = fakeTelegram();
+  const id = 301;
+  const { game } = createSoloSession(id, 'Игрок 301');
+  game.startGame(0);
+  game.placeBid(2, 'pass');
+  await telegram.command(id, '/table');
+  assert.equal(game.whoseTurn, 0);
+  assert.doesNotMatch(telegram.board(id).text, /Прикуп у/);
+
+  await telegram.press(id, 'bid:pass');
+  assert.equal(game.bidder, 1);
+  assert.ok(game.awaitingOpeningLead);
+  assert.equal(game.currentTrick.length, 0);
+  assert.ok('photo' in telegram.board(id));
+  assert.ok(telegram.board(id).text.includes(`Прикуп у <b>Север</b> · ${formatCards(game.talon)}`));
+  const startPlay = telegram.actionWithPrefix(id, 'solo:lead');
+
+  await telegram.press(id, startPlay);
+  assert.equal(game.currentTrick[0].player, 1);
+  assert.equal(game.whoseTurn, 0);
+  assert.doesNotMatch(telegram.board(id).text, /Прикуп у/);
+  assert.equal(telegram.action(id, 'solo:lead'), undefined);
+  await telegram.press(id, startPlay);
+  assert.match(telegram.answers.at(-1) ?? '', /Стол уже обновился/);
+  await telegram.command(id, '/stop');
 });
 
 test('Telegram: игрока с ботами можно пригласить за новый стол', async () => {

@@ -129,6 +129,10 @@ export class TysyachaGame {
     return this.players.length === 4 ? this.dealer : null;
   }
 
+  get awaitingOpeningLead(): boolean {
+    return this.phase === 'play' && this.currentTrick.length === 0 && this.lastTrickWinner === null;
+  }
+
   private nextActiveSeat(from: number): number {
     const next = (from + 1) % this.players.length;
     return next === this.sittingOut ? (next + 1) % this.players.length : next;
@@ -472,8 +476,7 @@ export class TysyachaGame {
   }
 
   getPublicView(): PublicGameView {
-    const beforeFirstCard = this.phase === 'play' && this.currentTrick.length === 0 && this.lastTrickWinner === null;
-    const showTalon = this.phase === 'talonshow' || this.phase === 'discard' || this.phase === 'order' || beforeFirstCard;
+    const showTalon = this.phase === 'talonshow' || this.phase === 'discard' || this.phase === 'order' || this.awaitingOpeningLead;
     return {
       phase: this.phase,
       players: this.players,
