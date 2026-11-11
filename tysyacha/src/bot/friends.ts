@@ -4,18 +4,20 @@ import type { PrivateView, TrickPlay } from '../game/engine.ts';
 import { Rooms, type Member, type Room } from './rooms.ts';
 import { cardAction, escapeHtml, scoreText, tableName, talonNotice } from './ui.ts';
 import { publishPhotoTable } from './table.ts';
+import { registerDirectory } from './directory.ts';
 
 const phases = {
   idle: 'Ожидание', bidding: 'Торги', talonshow: 'Прикуп', discard: 'Передача карт',
   order: 'Заказ', play: 'Розыгрыш', roundend: 'Итоги сдачи', gameover: 'Партия завершена',
 };
 
-const menuText = '<b>♠ Тысяча ♥</b>\n\nСоздайте стол, отправьте приглашение друзьям и начните партию, когда все займут места.';
+const menuText = '<b>♠ Тысяча ♥</b>\n\nСоздайте стол или откройте список игроков. За чужой стол можно попасть по приглашению или с согласия создателя.';
 
 function menu(): InlineKeyboard {
   return new InlineKeyboard()
     .text('👥 Стол на троих', 'friends:3').text('👥 Стол на четверых', 'friends:4').row()
-    .text('🤖 Игра с ботами', 'new').text('📖 Правила', 'rules');
+    .text('🤖 Игра с ботами', 'new').text('📖 Правила', 'rules').row()
+    .text('🪑 Столы', 'tables:open');
 }
 
 function callback(room: Room, action: string): string {
@@ -30,6 +32,13 @@ export function roomScreen(room: Room, member: Member, username: string): {
   const add = (label: string, action: string) => keyboard.text(label, callback(room, action));
   const name = (i: number) => tableName(room.members[i].name);
   const game = room.game;
+  if (member === room.waitingFourth) {
+    const when = game?.phase === 'gameover' ? 'со следующей партии' : 'со следующей сдачи';
+    const text = `<b>Стол №${room.number}</b>\n\nВы приняты четвёртым ${when}. Здесь появится ваш стол, когда начнётся игра вчетвером.`;
+    keyboard.text('🪑 Столы', 'tables:open');
+    add('Освободить место', 'leave');
+    return { text, keyboard, seat };
+  }
   if (!game) {
     const invite = `https://t.me/${username}?start=join_${room.id}`;
     const share = `https://t.me/share/url?url=${encodeURIComponent(invite)}&text=${encodeURIComponent('Сыграем в Тысячу?')}`;
@@ -39,7 +48,7 @@ export function roomScreen(room: Room, member: Member, username: string): {
       return `${i + 1}. <b>${name(i)}</b>${i === 0 ? ' · создатель' : ''}${seat === i ? ' · вы' : ''}`;
     });
     const lines = [
-      '<b>♠ Тысяча · Стол друзей</b>',
+      `<b>♠ Тысяча · Стол №${room.number}</b>`,
       `Занято мест <b>${room.members.length} из ${room.size}</b>`, '', ...seats, '',
       full
         ? seat === 0 ? 'Все на месте. Можно начинать.' : `Ждём, когда ${name(0)} начнёт партию.`
@@ -47,6 +56,7 @@ export function roomScreen(room: Room, member: Member, username: string): {
     ];
     if (!full) keyboard.url('📨 Пригласить друзей', share).row();
     if (full && seat === 0) add('▶️ Начать партию', 'start').row();
+    keyboard.text('🪑 Столы', 'tables:open');
     add('Выйти из комнаты', 'leave');
     return { text: lines.join('\n'), keyboard, seat };
   }
@@ -56,7 +66,7 @@ export function roomScreen(room: Room, member: Member, username: string): {
   const finished = view.phase === 'gameover' || view.phase === 'roundend';
   const lines = [
     `<b>♠ Тысяча · ${phases[view.phase]}</b>`,
-    `Сдача ${view.dealNumber} · ${room.size} игрока · до 1000`, '',
+    `Стол №${room.number} · Сдача ${view.dealNumber} · ${room.size} игрока · до 1000`, '',
   ];
   if (view.winner !== null) {
     lines.push(`🏆 <b>Победитель — ${name(view.winner)}</b>`);
@@ -78,6 +88,10 @@ export function roomScreen(room: Room, member: Member, username: string): {
     lines.push(`⏳ Ходит <b>${name(view.whoseTurn)}</b>`);
   }
   if (!finished && seat === view.sittingOut) lines.push('Вы на прикупе в этой сдаче.');
+  if (room.waitingFourth) {
+    const when = view.phase === 'gameover' ? 'со следующей партии' : 'со следующей сдачи';
+    lines.push(`${tableName(room.waitingFourth.name)} присоединится ${when}.`);
+  }
 
   lines.push('', '<b>Общий счёт · очки за сдачу</b>');
   view.scores.forEach((score, i) => {
@@ -138,12 +152,16 @@ export function roomScreen(room: Room, member: Member, username: string): {
   }
   if (view.phase === 'roundend') add('➡️ Следующая сдача', 'next').row();
   if (view.phase === 'gameover' && seat === 0) add('🔁 Сыграть ещё', 'restart').row();
+  keyboard.text('🪑 Столы', 'tables:open');
   add('Выйти из комнаты', 'leave');
   return { text: lines.join('\n'), keyboard, view, seat };
 }
 
 export function registerFriends(bot: Bot): void {
   const rooms = new Rooms();
+  const memberFor = (room: Room, id: number) =>
+    room.waitingFourth?.id === id ? room.waitingFourth : room.members.find((member) => member.id === id)!;
+  registerDirectory(bot, rooms, publish);
 
   const showMenu = (ctx: Context) => ctx.reply(menuText, { parse_mode: 'HTML', reply_markup: menu() });
 
@@ -168,7 +186,8 @@ export function registerFriends(bot: Bot): void {
   }
 
   async function publish(room: Room): Promise<void> {
-    await Promise.all(room.members.map(async (member) => {
+    const members = room.waitingFourth ? [...room.members, room.waitingFourth] : room.members;
+    await Promise.all(members.map(async (member) => {
       try {
         await updateTable(room, member);
       } catch (error) {
@@ -180,7 +199,7 @@ export function registerFriends(bot: Bot): void {
   async function askLeave(ctx: Context, room: Room): Promise<void> {
     const keyboard = new InlineKeyboard()
       .text('Да, выйти', callback(room, 'confirm-leave')).text('Остаться', callback(room, 'stay'));
-    await ctx.reply(room.game && room.game.phase !== 'gameover'
+    await ctx.reply(room.game && room.game.phase !== 'gameover' && room.waitingFourth?.id !== ctx.from?.id
       ? 'Если вы выйдете, партия завершится для всех. Выйти из комнаты?'
       : 'Выйти из комнаты?', { reply_markup: keyboard });
   }
@@ -202,7 +221,7 @@ export function registerFriends(bot: Bot): void {
       await showMenu(ctx);
       return;
     }
-    await updateTable(room, room.members.find((member) => member.id === ctx.from!.id)!);
+    await updateTable(room, memberFor(room, ctx.from!.id));
   });
 
   bot.command(['table', 'stop', 'leave'], async (ctx, next) => {
@@ -210,7 +229,7 @@ export function registerFriends(bot: Bot): void {
     const room = rooms.forMember(ctx.from!.id);
     if (!room) return next();
     if (ctx.message?.text.startsWith('/table')) {
-      const member = room.members.find((player) => player.id === ctx.from!.id)!;
+      const member = memberFor(room, ctx.from!.id);
       // По команде присылаем стол в конец переписки, чтобы его легко было найти.
       if (member.messageId !== undefined) {
         await bot.api.editMessageReplyMarkup(member.id, member.messageId).catch(() => undefined);
@@ -256,7 +275,7 @@ export function registerFriends(bot: Bot): void {
       return;
     }
     if (action === 'confirm-leave') {
-      const actor = room.members.find((member) => member.id === id)!;
+      const actor = memberFor(room, id);
       const { departed, closed } = rooms.leave(room, id);
       await ctx.answerCallbackQuery().catch(() => undefined);
       await ctx.deleteMessage().catch(() => undefined);

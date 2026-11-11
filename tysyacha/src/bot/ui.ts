@@ -145,7 +145,7 @@ export function buildKeyboard(view: PrivateView, humanIndex: number): InlineKeyb
     kb.text('➡️ Следующая сдача', 'next').row();
   }
 
-  kb.text('🔄 Новая партия', 'new').text('📖 Правила', 'rules');
+  kb.text('🪑 Столы', 'tables:open').text('🔄 Новая партия', 'new').text('📖 Правила', 'rules');
   return kb;
 }
 

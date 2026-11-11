@@ -134,7 +134,19 @@ export class TysyachaGame {
     return next === this.sittingOut ? (next + 1) % this.players.length : next;
   }
 
-  startGame(dealer = 0): void {
+  private addFourthPlayer(player: PlayerInfo): void {
+    if (this.players.length !== 3 || this.players.some(({ id }) => id === player.id)) {
+      throw new Error('Четвёртое место уже занято');
+    }
+    this.players.push(player);
+    this.scores.push(createScoreState());
+  }
+
+  startGame(dealer = 0, fourth?: PlayerInfo): void {
+    if (fourth) {
+      if (this.phase !== 'gameover') throw new Error('Партия ещё идёт');
+      this.addFourthPlayer(fourth);
+    }
     this.dealer = dealer % this.players.length;
     this.dealNumber = 0;
     this.winner = null;
@@ -452,8 +464,9 @@ export class TysyachaGame {
       result.notes.join(' ');
   }
 
-  nextDeal(): void {
+  nextDeal(fourth?: PlayerInfo): void {
     if (this.phase !== 'roundend') throw new Error('Рано начинать новую сдачу');
+    if (fourth) this.addFourthPlayer(fourth);
     this.dealer = (this.dealer + 1) % this.players.length;
     this.startDeal();
   }
