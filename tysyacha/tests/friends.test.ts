@@ -62,6 +62,11 @@ function fakeTelegram() {
     const button = buttons(id).find((item) => 'callback_data' in item && item.callback_data?.endsWith(suffix));
     return button && 'callback_data' in button ? button.callback_data : undefined;
   }
+  function actionWithPrefix(id: number, prefix: string) {
+    const button = buttons(id).find((item) => 'callback_data' in item && item.callback_data?.startsWith(prefix));
+    assert.ok(button && 'callback_data' in button && button.callback_data);
+    return button.callback_data;
+  }
   function command(id: number, text: string) {
     const name = text.split(' ')[0];
     return bot.handleUpdate({
@@ -78,7 +83,7 @@ function fakeTelegram() {
       callback_query: { id: String(sequence), chat_instance: String(id), from: player(id), data, message: board(id) },
     });
   }
-  return { action, answers, board, buttons, command, press };
+  return { action, actionWithPrefix, answers, board, buttons, command, press };
 }
 
 for (const size of [3, 4]) {
@@ -113,6 +118,22 @@ for (const size of [3, 4]) {
     assert.equal(allHands.filter((hand) => hand === undefined).length, size - 3);
     const seesTalon = (id: number) => telegram.board(id).text.includes('Прикуп у <b>');
     assert.ok(ids.every((id) => !seesTalon(id)));
+
+    const fourth = 104;
+    if (size === 3) {
+      await telegram.command(fourth, '/tables');
+      assert.match(telegram.board(fourth).text, /Стол №1.*В игре · 3/);
+      assert.match(telegram.board(fourth).text, /Игрок 101, Игрок 102, Игрок 103/);
+      assert.doesNotMatch(telegram.board(fourth).text, /Ваши карты/);
+      await telegram.press(fourth, telegram.actionWithPrefix(fourth, 'tables:join:'));
+      assert.match(telegram.board(host).text, /Игрок 104.*просится четвёртым/);
+      const approve = telegram.actionWithPrefix(host, 'tables:yes:');
+      await telegram.press(102, approve);
+      assert.match(telegram.answers.at(-1) ?? '', /устарели/);
+      await telegram.press(host, approve);
+      assert.match(telegram.board(fourth).text, /приняты четвёртым со следующей сдачи/);
+      assert.ok(!('photo' in telegram.board(fourth)));
+    }
 
     const firstTurn = ids.find((id) => telegram.action(id, ':bid:pass'))!;
     const pass = telegram.action(firstTurn, ':bid:pass')!;
@@ -154,9 +175,18 @@ for (const size of [3, 4]) {
     assert.ok(ids.every((id) => !seesTalon(id)));
     assert.match(telegram.board(host).text, /Общий счёт · очки за сдачу/);
     if (size === 4) assert.match(telegram.board(host).text, /Очки сдающего за прикуп/);
+    const scoreLines = (text: string) => [...text.matchAll(/Игрок 10[1-3] · <b>[−\d]+<\/b>/g)].map(([score]) => score);
+    const before = scoreLines(telegram.board(host).text);
     await telegram.press(host, next);
     assert.match(telegram.board(host).text, /Сдача 2/);
     assert.ok(ids.every((id) => !seesTalon(id)));
+    if (size === 3) {
+      assert.match(telegram.board(fourth).text, /Сдача 2 · 4 игрока/);
+      assert.match(telegram.board(fourth).text, /Игрок 104 · <b>0<\/b>/);
+      assert.ok('photo' in telegram.board(fourth));
+      assert.equal(before.length, 3);
+      assert.deepEqual(scoreLines(telegram.board(host).text), before);
+    }
     if (size === 4) {
       const oldDealer = allHands.findIndex((hand) => hand === undefined);
       const newDealer = ids.findIndex((id) => !telegram.board(id).text.includes('<b>Ваши карты</b>'));
@@ -170,6 +200,23 @@ test('Telegram: одиночный стол тоже отправляется к
   await telegram.command(101, '/new');
   assert.ok('photo' in telegram.board(101));
   assert.match(telegram.board(101).text, /всего · \d+ за сдачу/);
+  await telegram.command(101, '/stop');
+});
+
+test('Telegram: игрока с ботами можно пригласить за новый стол', async () => {
+  const telegram = fakeTelegram();
+  await telegram.command(201, '/start');
+  await telegram.command(202, '/new');
+  await telegram.press(201, telegram.actionWithPrefix(201, 'tables:open'));
+  assert.match(telegram.board(201).text, /Игрок 202.*Играет с ботами/);
+  await telegram.press(201, telegram.actionWithPrefix(201, 'tables:invite:'));
+  assert.match(telegram.board(202).text, /Игрок 201.*приглашает вас за новый стол на троих/);
+  await telegram.press(202, telegram.actionWithPrefix(202, 'tables:yes:'));
+  assert.match(telegram.board(201).text, /Занято мест <b>2 из 3<\/b>/);
+  assert.match(telegram.board(202).text, /Занято мест <b>2 из 3<\/b>/);
+  await telegram.command(203, '/tables');
+  assert.match(telegram.board(203).text, /Игрок 201, Игрок 202/);
+  assert.doesNotMatch(telegram.board(203).text, /Игрок 202.*Играет с ботами/);
 });
 
 test('бубновый марьяж объявляется ходом королём после взятки', () => {
