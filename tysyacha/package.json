@@ -1,0 +1,24 @@
+{
+  "name": "tysyacha-telegram",
+  "version": "1.0.0",
+  "description": "Карточная игра «Тысяча» — Telegram-бот с красивой визуализацией стола",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/bot/index.ts",
+    "web": "tsx src/web/server.ts",
+    "dev": "tsx watch src/bot/index.ts",
+    "test": "tsx --test tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "grammy": "^1.46.0",
+    "tsx": "^4.20.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3"
+  }
+}

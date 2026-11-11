@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Тысяча</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="felt-bg" aria-hidden="true">
+    <div class="felt-glow"></div>
+    <div class="felt-grain"></div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">Т</span>
+      <div>
+        <h1>Тысяча</h1>
+        <p class="brand-sub">классика на 24 карты</p>
+      </div>
+    </div>
+    <div class="top-meta" id="topMeta"></div>
+  </header>
+
+  <main class="layout">
+    <section class="scores" id="scores"></section>
+
+    <section class="table" id="table">
+      <div class="opponents" id="opponents"></div>
+      <div class="center-stage" id="centerStage">
+        <div class="bid-pill" id="bidPill">—</div>
+        <div class="trick" id="trick"></div>
+        <p class="status" id="status">Нажмите «Новая партия»</p>
+      </div>
+      <div class="hand-wrap">
+        <div class="hand" id="hand"></div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="panel-card">
+        <h2>Ход</h2>
+        <div class="actions" id="actions"></div>
+      </div>
+      <div class="panel-card">
+        <h2>Правила коротко</h2>
+        <ul class="rules">
+          <li>3 игрока, колода 24 карты (9–Т)</li>
+          <li>Торги от 100, шаг 5</li>
+          <li>Победитель берёт прикуп и сносит по карте</li>
+          <li>Марьяж: К+Д после своей взятки</li>
+          <li>Бочка на 880, победа от 1000</li>
+        </ul>
+        <button type="button" class="btn ghost" id="btnRules">Подробнее</button>
+      </div>
+      <div class="panel-card log-card">
+        <h2>Журнал</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div class="dock">
+    <button type="button" class="btn primary" id="btnNew">Новая партия</button>
+    <button type="button" class="btn" id="btnNext" hidden>Следующая сдача</button>
+  </div>
+
+  <dialog id="rulesDialog">
+    <article>
+      <h2>Правила «Тысячи»</h2>
+      <p>Сверено с распространённым домашним вариантом (kubikoved / IgraFan / cards-1000).</p>
+      <h3>Колода и очки</h3>
+      <p>Туз 11, десятка 10, король 4, дама 3, валет 2, девятка 0. Старшинство: Т &gt; 10 &gt; К &gt; Д &gt; В &gt; 9.</p>
+      <h3>Торговля</h3>
+      <p>Слева от сдающего — обязательные 100. Повышение кратно 5. Без марьяжа нельзя выше 120. Пас окончательный.</p>
+      <h3>Прикуп и заказ</h3>
+      <p>Победитель берёт 3 карты прикупа, сносит по одной каждому, затем заказывает не меньше ставки торгов.</p>
+      <h3>Марьяж</h3>
+      <p>После своей взятки заходите К или Д масти и объявляете: ♠40 ♣60 ♦80 ♥100. Масть становится козырем.</p>
+      <h3>Запись</h3>
+      <p>Играющий получает заказ или −заказ. Соперники — округление до 5. Бочка 880, выход заказом ≥120. Цель — 1000.</p>
+      <button type="button" class="btn primary" id="btnCloseRules">Понятно</button>
+    </article>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
