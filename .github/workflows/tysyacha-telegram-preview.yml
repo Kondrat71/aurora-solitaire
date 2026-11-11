@@ -9,6 +9,7 @@ permissions:
 
 concurrency:
   group: tysyacha-telegram-preview
+  cancel-in-progress: true
 
 jobs:
   preview:
@@ -29,7 +30,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm run typecheck
           npm test
-      - name: Проверить токен и открыть столы на 30 минут
+      - name: Проверить токен в Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
@@ -64,9 +65,12 @@ jobs:
             process.exit(1);
           }
           JS
-
+      - name: Открыть столы на 30 минут
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
           status=0
-          timeout --signal=TERM --kill-after=10s 30m node --import tsx src/bot/index.ts || status=$?
+          timeout --signal=TERM --kill-after=10s 30m node --import tsx src/bot/index.ts | sed -u -E 's/@[A-Za-z0-9_]+/[bot]/g' || status=$?
           if [ "$status" -ne 124 ]; then
             echo "Пробная сессия завершилась раньше времени (код $status)."
             exit 1
